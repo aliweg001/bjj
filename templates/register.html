@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Rejestracja - BJJ Techniques Manager{% endblock %}
+
+{% block content %}
+<div style="max-width: 500px; margin: 30px auto;">
+    <h2 style="text-align: center; margin-bottom: 30px; color: #667eea;">Rejestracja</h2>
+
+    <form method="POST" action="{{ url_for('register') }}">
+        <div class="form-group">
+            <label for="full_name">Imię i nazwisko</label>
+            <input type="text" id="full_name" name="full_name" required>
+        </div>
+
+        <div class="form-group">
+            <label for="username">Nazwa użytkownika</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Hasło (min. 6 znaków)</label>
+            <input type="password" id="password" name="password" required minlength="6">
+        </div>
+
+        <div class="form-group">
+            <label for="confirm_password">Potwierdź hasło</label>
+            <input type="password" id="confirm_password" name="confirm_password" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Zarejestruj się</button>
+    </form>
+
+    <p style="text-align: center; margin-top: 20px;">
+        Masz już konto? <a href="{{ url_for('login') }}" style="color: #667eea;">Zaloguj się</a>
+    </p>
+
+    <div style="margin-top: 30px; padding: 15px; background: #fef5e7; border-radius: 5px; border-left: 4px solid #f59e0b;">
+        <p style="font-weight: 600; margin-bottom: 10px;">ℹ️ Ważne informacje:</p>
+        <p>Po rejestracji Twoje konto będzie oczekiwać na zatwierdzenie przez administratora. Otrzymasz dostęp do aplikacji po akceptacji.</p>
+    </div>
+</div>
+{% endblock %}

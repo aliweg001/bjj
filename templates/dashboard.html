@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - BJJ Techniques Manager{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px;">Dashboard</h2>
+
+<div class="stats">
+    <div class="stat-card">
+        <h3>{{ total_techniques }}</h3>
+        <p>Technik w bazie</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ total_videos }}</h3>
+        <p>Filmów treningowych</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ categories|length }}</h3>
+        <p>Kategorii</p>
+    </div>
+</div>
+
+<h3 style="margin-bottom: 20px;">Ostatnio dodane techniki</h3>
+<div class="grid">
+    {% for technique in recent_techniques %}
+    <div class="card">
+        <h4 style="margin-bottom: 10px; color: #667eea;">{{ technique.title }}</h4>
+        <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+            {{ technique.description[:100] }}{% if technique.description|length > 100 %}...{% endif %}
+        </p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span class="badge badge-{{ technique.difficulty or 'medium' }}">
+                {{ technique.difficulty or 'Medium' }}
+            </span>
+            <span style="color: #999; font-size: 12px;">{{ technique.category_name or 'Brak kategorii' }}</span>
+        </div>
+        <a href="{{ url_for('technique_detail', technique_id=technique.id) }}" class="btn btn-primary">Zobacz szczegóły</a>
+    </div>
+    {% endfor %}
+</div>
+
+<h3 style="margin-top: 40px; margin-bottom: 20px;">Kategorie</h3>
+<div class="grid">
+    {% for category in categories %}
+    <div class="card" style="cursor: pointer;" onclick="window.location.href='{{ url_for('techniques', category=category.id) }}'">
+        <h4 style="color: #667eea; margin-bottom: 10px;">{{ category.name }}</h4>
+        <p style="color: #666; font-size: 14px;">{{ category.description }}</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

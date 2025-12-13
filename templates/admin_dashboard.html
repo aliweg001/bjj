@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Panel Administratora - BJJ Techniques Manager{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px;">Panel Administratora</h2>
+
+<div class="card">
+    <h3 style="margin-bottom: 20px; color: #f59e0b;">
+        ⏳ Oczekujące prośby o dostęp ({{ pending_users|length }})
+    </h3>
+
+    {% if pending_users %}
+    <table>
+        <thead>
+            <tr>
+                <th>Imię i nazwisko</th>
+                <th>Nazwa użytkownika</th>
+                <th>Email</th>
+                <th>Data rejestracji</th>
+                <th>Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in pending_users %}
+            <tr>
+                <td>{{ user.full_name }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.email }}</td>
+                <td>{{ user.created_at[:10] }}</td>
+                <td>
+                    <form method="POST" action="{{ url_for('approve_user', user_id=user.id) }}" style="display: inline;">
+                        <button type="submit" class="btn btn-success" style="padding: 6px 12px; font-size: 12px;">
+                            ✓ Zatwierdź
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('reject_user', user_id=user.id) }}" style="display: inline;" 
+                          onsubmit="return confirm('Czy na pewno chcesz odrzucić tego użytkownika?');">
+                        <button type="submit" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;">
+                            ✗ Odrzuć
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #999; padding: 40px;">
+        Brak oczekujących próśb o dostęp.
+    </p>
+    {% endif %}
+</div>
+
+<div class="card" style="margin-top: 30px;">
+    <h3 style="margin-bottom: 20px;">👥 Wszyscy użytkownicy ({{ all_users|length }})</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Imię i nazwisko</th>
+                <th>Nazwa użytkownika</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Rola</th>
+                <th>Data rejestracji</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in all_users %}
+            <tr>
+                <td>{{ user.full_name }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.email }}</td>
+                <td>
+                    {% if user.is_approved %}
+                        <span class="badge badge-easy">Zatwierdzony</span>
+                    {% else %}
+                        <span class="badge badge-medium">Oczekuje</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if user.is_admin %}
+                        <span class="badge badge-hard">Administrator</span>
+                    {% else %}
+                        <span class="badge" style="background: #e2e8f0; color: #4a5568;">Użytkownik</span>
+                    {% endif %}
+                </td>
+                <td>{{ user.created_at[:10] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

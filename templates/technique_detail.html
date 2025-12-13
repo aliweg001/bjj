@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}{{ technique.title }} - BJJ Techniques Manager{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('techniques') }}" style="color: #667eea; text-decoration: none; margin-bottom: 20px; display: inline-block;">
+    ← Powrót do listy technik
+</a>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px;">
+        <div>
+            <h2 style="color: #667eea; margin-bottom: 10px;">{{ technique.title }}</h2>
+            <span class="badge badge-{{ technique.difficulty or 'medium' }}">
+                {{ technique.difficulty or 'Medium' }}
+            </span>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; padding: 15px; background: #f7fafc; border-radius: 8px;">
+        <div>
+            <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Kategoria:</p>
+            <p style="font-weight: 600;">{{ technique.category_name or 'Brak kategorii' }}</p>
+        </div>
+        <div>
+            <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Pozycja:</p>
+            <p style="font-weight: 600;">{{ technique.position or 'Nie określono' }}</p>
+        </div>
+        <div>
+            <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Dodane przez:</p>
+            <p style="font-weight: 600;">{{ technique.username }}</p>
+        </div>
+        <div>
+            <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Data dodania:</p>
+            <p style="font-weight: 600;">{{ technique.created_at[:10] }}</p>
+        </div>
+    </div>
+
+    <h3 style="margin-bottom: 15px;">Opis</h3>
+    <p style="color: #666; line-height: 1.6; white-space: pre-wrap;">{{ technique.description or 'Brak opisu' }}</p>
+</div>
+
+<div class="card" style="margin-top: 30px;">
+    <h3 style="margin-bottom: 20px;">Filmy treningowe ({{ videos|length }})</h3>
+
+    <form method="POST" action="{{ url_for('upload_video', technique_id=technique.id) }}" enctype="multipart/form-data" style="background: #f7fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+        <h4 style="margin-bottom: 15px;">Prześlij nowy film</h4>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr auto; gap: 15px; align-items: end;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="video">Wybierz plik wideo</label>
+                <input type="file" id="video" name="video" accept="video/*" required>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="video_type">Typ filmu</label>
+                <select id="video_type" name="video_type">
+                    <option value="training">Trening klubowy</option>
+                    <option value="seminar">Seminarium</option>
+                    <option value="competition">Zawody</option>
+                    <option value="tutorial">Tutorial</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-success">Prześlij film</button>
+        </div>
+        <p style="font-size: 12px; color: #999; margin-top: 10px;">
+            Dozwolone formaty: MP4, AVI, MOV, MKV, WEBM (max 500MB)
+        </p>
+    </form>
+
+    {% if videos %}
+        {% for video in videos %}
+        <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div>
+                    <h4 style="margin-bottom: 5px;">{{ video.original_filename }}</h4>
+                    <p style="font-size: 12px; color: #999;">
+                        Typ: <strong>{{ video.video_type }}</strong> | 
+                        Przesłane przez: <strong>{{ video.username }}</strong> | 
+                        Data: <strong>{{ video.uploaded_at[:10] }}</strong>
+                    </p>
+                </div>
+            </div>
+
+            <div class="video-container">
+                <video controls>
+                    <source src="{{ url_for('static', filename='uploads/' + video.filename) }}" type="video/mp4">
+                    Twoja przeglądarka nie obsługuje odtwarzania wideo.
+                </video>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p style="text-align: center; color: #999; padding: 40px;">
+            Brak filmów dla tej techniki. Bądź pierwszy i prześlij nagranie!
+        </p>
+    {% endif %}
+</div>
+{% endblock %}
