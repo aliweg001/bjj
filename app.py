@@ -1,413 +1,265 @@
-# python
 import os
 from dotenv import load_dotenv
-load_dotenv()
 from functools import wraps
-from datetime import datetime
 from flask import (
-    Flask, render_template, request, redirect, url_for, flash, session,
-    jsonify, g, send_from_directory
+    Flask, render_template, request, redirect, url_for, flash, session, g
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-try:
-    import psycopg2
-    from psycopg2 import IntegrityError
-    from psycopg2.extras import RealDictCursor
-except Exception as e:
-    raise RuntimeError("Zainstaluj psycopg2-binary i ustaw DATABASE_URL") from e
+load_dotenv()
 
-# Konfiguracja
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'change-me-for-dev')
-app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'static/uploads')
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
-ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'bjj-pro-key-2026')
+
+# Konfiguracja plików wideo
+UPLOAD_FOLDER = 'static/uploads'
+ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi', 'wmv'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 DB_DSN = os.getenv('DATABASE_URL')
-if not DB_DSN:
-    raise RuntimeError("Ustaw zmienną środowiskową DATABASE_URL dla PostgreSQL")
 
-# DB helpers
-def get_db():
-    if 'db' not in g:
-        conn = psycopg2.connect(DB_DSN, cursor_factory=RealDictCursor)
-        conn.autocommit = False
-        g.db = conn
-    return g.db
 
-@app.teardown_appcontext
-def close_db(exc=None):
-    db = g.pop('db', None)
-    if db is not None:
-        try:
-            if exc:
-                db.rollback()
-        finally:
-            db.close()
-
-def db_query(sql, params=None):
-    params = params or ()
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    cur.close()
-    return rows
-
-def db_execute(sql, params=None, returning=False):
-    params = params or ()
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    result = None
-    if returning:
-        result = cur.fetchone()
-    conn.commit()
-    cur.close()
-    return result
-
-def init_db():
-    # tworzymy tabele i domyślne dane
-    conn = psycopg2.connect(DB_DSN)
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE,
-        password TEXT NOT NULL,
-        full_name TEXT,
-        is_approved INTEGER DEFAULT 0,
-        is_admin INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS categories (
-        id SERIAL PRIMARY KEY,
-        name TEXT UNIQUE NOT NULL,
-        description TEXT
-    );
-    CREATE TABLE IF NOT EXISTS techniques (
-        id SERIAL PRIMARY KEY,
-        title TEXT NOT NULL,
-        description TEXT,
-        category_id INTEGER REFERENCES categories(id),
-        position TEXT,
-        difficulty TEXT,
-        added_by INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS videos (
-        id SERIAL PRIMARY KEY,
-        technique_id INTEGER REFERENCES techniques(id),
-        filename TEXT NOT NULL,
-        original_filename TEXT NOT NULL,
-        video_type TEXT,
-        uploaded_by INTEGER REFERENCES users(id),
-        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-    # default categories
-    default_categories = [
-        ('Pozycje', 'Podstawowe pozycje w BJJ'),
-        ('Submisje', 'Techniki poddań'),
-        ('Przejścia', 'Przejścia między pozycjami'),
-        ('Ucieczki', 'Techniki ucieczek'),
-        ('Zarzuty', 'Techniki zarzutów'),
-        ('Obrony', 'Techniki obronne'),
-        ('Guardy', 'Różne typy guardów'),
-        ('Pasowanie', 'Techniki pasowania guardu')
-    ]
-    for name, desc in default_categories:
-        cur.execute("""
-            INSERT INTO categories (name, description)
-            VALUES (%s, %s)
-            ON CONFLICT (name) DO NOTHING
-        """, (name, desc))
-    # default admin
-    admin_hash = generate_password_hash('admin123')
-    cur.execute("""
-        INSERT INTO users (username, email, password, full_name, is_approved, is_admin)
-        VALUES (%s, %s, %s, %s, 1, 1)
-        ON CONFLICT (username) DO NOTHING
-    """, ('admin', 'admin@bjj.com', admin_hash, 'Administrator'))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-# Utilities
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Decorators
+
+def get_db():
+    if 'db' not in g:
+        g.db = psycopg2.connect(DB_DSN, cursor_factory=RealDictCursor)
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(e=None):
+    db = g.pop('db', None)
+    if db is not None: db.close()
+
+
+# BEZPIECZNE ZAPYTANIA Z ROLLBACKIEM
+def db_query(sql, params=None):
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute(sql, params or ())
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    except Exception as e:
+        db.rollback()
+        cur.close()
+        raise e
+
+
+def db_execute(sql, params=None):
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute(sql, params or ())
+        db.commit()
+        cur.close()
+    except Exception as e:
+        db.rollback()
+        cur.close()
+        raise e
+
+
+# --- DEKORATORY ---
 def login_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('Musisz być zalogowany.', 'error')
-            return redirect(url_for('login'))
+        if 'user_id' not in session: return redirect(url_for('login'))
         return f(*args, **kwargs)
+
     return wrapped
+
 
 def admin_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('Musisz być zalogowany.', 'error')
-            return redirect(url_for('login'))
+        if 'user_id' not in session: return redirect(url_for('login'))
         user = db_query("SELECT is_admin FROM users WHERE id = %s", (session['user_id'],))
-        if not user or not user[0].get('is_admin'):
-            flash('Brak uprawnień administratora.', 'error')
-            return redirect(url_for('index'))
+        if not user or not user[0]['is_admin']:
+            flash('Brak uprawnień admina.', 'error')
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
+
     return wrapped
+
 
 def approved_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
-        if 'user_id' not in session:
-            return redirect(url_for('login'))
+        if 'user_id' not in session: return redirect(url_for('login'))
         user = db_query("SELECT is_approved FROM users WHERE id = %s", (session['user_id'],))
-        if not user or not user[0].get('is_approved'):
-            flash('Twoje konto oczekuje zatwierdzenia.', 'warning')
+        if not user or not user[0]['is_approved']:
             return redirect(url_for('pending_approval'))
         return f(*args, **kwargs)
+
     return wrapped
 
-# Routes
+
+# --- TRASA NAPRAWCZA (USUWA GARDĘ I DODAJE OPIS KOŃCZEŃ) ---
+@app.route('/setup-database')
+@login_required
+@admin_required
+def setup_database():
+    try:
+        # 1. Kolumny dla wideo
+        db_execute("ALTER TABLE techniques ADD COLUMN IF NOT EXISTS video_url TEXT")
+        db_execute("ALTER TABLE techniques ADD COLUMN IF NOT EXISTS video_filename TEXT")
+
+        # 2. Kolumna dla opisu kategorii
+        db_execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT")
+
+        # 3. Porządki w kategoriach
+        db_execute("DELETE FROM categories WHERE name = 'Garda'")
+
+        # 4. Dodanie/Aktualizacja kategorii
+        db_execute("INSERT INTO categories (name, description) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
+                   ('Przejścia', 'Techniki omijania gardy przeciwnika.'))
+
+        db_execute(
+            "INSERT INTO categories (name, description) VALUES (%s, %s) ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description",
+            ('Kończenia', 'Techniki kończące walkę, takie jak dźwignie i duszenia.'))
+
+        flash('Baza zaktualizowana: Garda usunięta, Kończenia mają opis!', 'success')
+    except Exception as e:
+        flash(f'Błąd: {e}', 'error')
+    return redirect(url_for('dashboard'))
+
+
+# --- TRASY ---
 @app.route('/')
 def index():
-    if 'user_id' in session:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
+    return redirect(url_for('dashboard')) if 'user_id' in session else redirect(url_for('login'))
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = (request.form.get('username') or '').strip()
-        email = (request.form.get('email') or '').strip()
-        password = request.form.get('password') or ''
-        full_name = (request.form.get('full_name') or '').strip()
-        if not username or not password:
-            flash('Nazwa i hasło są wymagane.', 'error')
-            return redirect(url_for('register'))
-        if len(password) < 6:
-            flash('Hasło min 6 znaków.', 'error')
-            return redirect(url_for('register'))
-        pw_hash = generate_password_hash(password)
-        try:
-            db_execute("""
-                INSERT INTO users (username, email, password, full_name)
-                VALUES (%s, %s, %s, %s)
-            """, (username, email or None, pw_hash, full_name or None))
-        except IntegrityError:
-            flash('Nazwa użytkownika lub email już istnieje.', 'error')
-            return redirect(url_for('register'))
-        flash('Zarejestrowano. Poczekaj na zatwierdzenie.', 'success')
-        return redirect(url_for('login'))
-    return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = (request.form.get('username') or '').strip()
-        password = request.form.get('password') or ''
-        row = db_query("SELECT * FROM users WHERE username = %s", (username,))
-        user = row[0] if row else None
-        if user and check_password_hash(user['password'], password):
+        user = db_query("SELECT * FROM users WHERE username = %s", (request.form.get('username'),))
+        if user and check_password_hash(user[0]['password'], request.form.get('password')):
             session.clear()
-            session['user_id'] = user['id']
-            session['username'] = user['username']
-            session['is_admin'] = user.get('is_admin', 0)
-            session['is_approved'] = user.get('is_approved', 0)
-            if not session['is_approved']:
-                return redirect(url_for('pending_approval'))
-            flash('Zalogowano.', 'success')
+            session['user_id'] = user[0]['id']
+            session['username'] = user[0]['username']
+            session['is_admin'] = user[0]['is_admin']
             return redirect(url_for('dashboard'))
-        flash('Nieprawidłowe dane.', 'error')
+        flash('Błędne dane.', 'error')
     return render_template('login.html')
 
-@app.route('/logout')
-def logout():
-    session.clear()
-    flash('Wylogowano.', 'info')
-    return redirect(url_for('login'))
 
-@app.route('/pending-approval')
-@login_required
-def pending_approval():
-    return render_template('pending_approval.html')
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        u, e, f = request.form.get('username'), request.form.get('email'), request.form.get('full_name')
+        p = generate_password_hash(request.form.get('password'))
+        try:
+            db_execute("INSERT INTO users (username, email, full_name, password) VALUES (%s, %s, %s, %s)", (u, e, f, p))
+            flash('Zarejestrowano!', 'success')
+            return redirect(url_for('login'))
+        except:
+            flash('Błąd rejestracji.', 'error')
+    return render_template('register.html')
+
 
 @app.route('/dashboard')
 @login_required
 @approved_required
 def dashboard():
-    total_tech = db_query("SELECT COUNT(*) as count FROM techniques")[0]['count']
-    total_vid = db_query("SELECT COUNT(*) as count FROM videos")[0]['count']
-    recent = db_query("""
-        SELECT t.*, c.name AS category_name, u.username
-        FROM techniques t
-        LEFT JOIN categories c ON t.category_id = c.id
-        LEFT JOIN users u ON t.added_by = u.id
-        ORDER BY t.created_at DESC
-        LIMIT 6
-    """)
-    categories = db_query("SELECT * FROM categories ORDER BY name")
-    return render_template('dashboard.html', total_techniques=total_tech, total_videos=total_vid,
-                           recent_techniques=recent, categories=categories)
+    stats = {
+        'techniques_count': 0, 'categories_count': 0, 'videos_count': 0
+    }
+    try:
+        stats['techniques_count'] = db_query("SELECT COUNT(*) as c FROM techniques")[0]['c']
+        stats['categories_count'] = db_query("SELECT COUNT(*) as c FROM categories")[0]['c']
+        stats['videos_count'] = db_query("""
+                                         SELECT COUNT(*) as c
+                                         FROM techniques
+                                         WHERE (video_url IS NOT NULL AND video_url != '')
+                                            OR (video_filename IS NOT NULL AND video_filename != '')
+                                         """)[0]['c']
+    except:
+        pass
 
-@app.route('/techniques')
-@login_required
-@approved_required
-def techniques():
-    category = request.args.get('category')
-    difficulty = request.args.get('difficulty')
-    search = request.args.get('search')
-    params = []
-    where = []
-    sql = """
-        SELECT t.*, c.name as category_name, u.username,
-               COUNT(v.id) as video_count
-        FROM techniques t
-        LEFT JOIN categories c ON t.category_id = c.id
-        LEFT JOIN users u ON t.added_by = u.id
-        LEFT JOIN videos v ON t.id = v.technique_id
-    """
-    if category:
-        where.append("t.category_id = %s"); params.append(category)
-    if difficulty:
-        where.append("t.difficulty = %s"); params.append(difficulty)
-    if search:
-        where.append("(t.title ILIKE %s OR t.description ILIKE %s)"); params.extend([f'%{search}%', f'%{search}%'])
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " GROUP BY t.id, c.name, u.username ORDER BY t.created_at DESC"
-    techniques_list = db_query(sql, tuple(params))
-    categories = db_query("SELECT * FROM categories ORDER BY name")
-    return render_template('techniques.html', techniques=techniques_list, categories=categories)
+    recent = []
+    try:
+        recent = db_query("SELECT * FROM techniques ORDER BY id DESC LIMIT 5")
+    except:
+        pass
 
-@app.route('/technique/<int:technique_id>')
-@login_required
-@approved_required
-def technique_detail(technique_id):
-    t = db_query("""
-        SELECT t.*, c.name as category_name, u.username
-        FROM techniques t
-        LEFT JOIN categories c ON t.category_id = c.id
-        LEFT JOIN users u ON t.added_by = u.id
-        WHERE t.id = %s
-    """, (technique_id,))
-    technique = t[0] if t else None
-    if not technique:
-        flash('Technika nie znaleziona.', 'error')
-        return redirect(url_for('techniques'))
-    videos = db_query("""
-        SELECT v.*, u.username FROM videos v
-        LEFT JOIN users u ON v.uploaded_by = u.id
-        WHERE v.technique_id = %s ORDER BY v.uploaded_at DESC
-    """, (technique_id,))
-    return render_template('technique_detail.html', technique=technique, videos=videos)
+    cats = []
+    try:
+        cats = db_query("SELECT * FROM categories")
+    except:
+        pass
+
+    return render_template('dashboard.html', stats=stats, recent_techniques=recent, categories=cats)
+
 
 @app.route('/technique/add', methods=['GET', 'POST'])
 @login_required
 @approved_required
 def add_technique():
     if request.method == 'POST':
-        title = (request.form.get('title') or '').strip()
-        description = request.form.get('description')
-        category_id = request.form.get('category_id') or None
-        position = request.form.get('position') or None
-        difficulty = request.form.get('difficulty') or None
-        if not title:
-            flash('Tytuł wymagany.', 'error')
-            return redirect(url_for('add_technique'))
-        # zwracamy id dodanej techniki
-        res = db_execute("""
-            INSERT INTO techniques (title, description, category_id, position, difficulty, added_by)
-            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-        """, (title, description, category_id, position, difficulty, session['user_id']), returning=True)
-        technique_id = res['id'] if res else None
-        flash('Dodano technikę.', 'success')
-        return redirect(url_for('technique_detail', technique_id=technique_id))
-    categories = db_query("SELECT * FROM categories ORDER BY name")
+        name, cat_id, desc, v_url = request.form.get('name'), request.form.get('category_id'), request.form.get(
+            'description'), request.form.get('video_url')
+        v_filename = None
+        if 'video_file' in request.files:
+            file = request.files['video_file']
+            if file and file.filename != '' and allowed_file(file.filename):
+                v_filename = secure_filename(file.filename)
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], v_filename))
+
+        db_execute(
+            "INSERT INTO techniques (name, category_id, description, video_url, video_filename) VALUES (%s, %s, %s, %s, %s)",
+            (name, cat_id, desc, v_url, v_filename))
+        flash('Dodano!', 'success')
+        return redirect(url_for('techniques'))
+
+    categories = db_query("SELECT * FROM categories")
     return render_template('add_technique.html', categories=categories)
 
-@app.route('/technique/<int:technique_id>/upload-video', methods=['POST'])
+
+@app.route('/techniques')
 @login_required
 @approved_required
-def upload_video(technique_id):
-    if 'video' not in request.files:
-        flash('Nie wybrano pliku.', 'error')
-        return redirect(url_for('technique_detail', technique_id=technique_id))
-    file = request.files['video']
-    if file.filename == '':
-        flash('Nie wybrano pliku.', 'error')
-        return redirect(url_for('technique_detail', technique_id=technique_id))
-    if not allowed_file(file.filename):
-        flash('Niedozwolony format pliku.', 'error')
-        return redirect(url_for('technique_detail', technique_id=technique_id))
-    filename = secure_filename(file.filename)
-    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    stored = f"{stamp}_{filename}"
-    path = os.path.join(app.config['UPLOAD_FOLDER'], stored)
-    file.save(path)
-    db_execute("""
-        INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (technique_id, stored, filename, request.form.get('video_type', 'training'), session['user_id']))
-    flash('Film przesłany.', 'success')
-    return redirect(url_for('technique_detail', technique_id=technique_id))
+def techniques():
+    t_list = db_query("SELECT * FROM techniques")
+    return render_template('techniques.html', techniques=t_list)
 
-@app.route('/uploads/<path:filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/admin/dashboard')
 @login_required
 @admin_required
 def admin_dashboard():
-    pending = db_query("SELECT * FROM users WHERE is_approved = 0 ORDER BY created_at DESC")
-    all_users = db_query("SELECT * FROM users ORDER BY created_at DESC")
-    return render_template('admin_dashboard.html', pending_users=pending, all_users=all_users)
+    pending = db_query("SELECT id, username, email FROM users WHERE is_approved = 0")
+    all_u = db_query("SELECT id, username, email, is_approved, is_admin FROM users")
+    return render_template('admin_dashboard.html', pending_users=pending, all_users=all_u)
 
-@app.route('/admin/approve-user/<int:user_id>', methods=['POST'])
+
+@app.route('/admin/approve/<int:user_id>', methods=['POST'])
 @login_required
 @admin_required
 def approve_user(user_id):
     db_execute("UPDATE users SET is_approved = 1 WHERE id = %s", (user_id,))
-    flash('Użytkownik zatwierdzony.', 'success')
+    flash('Zatwierdzono.')
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/admin/reject-user/<int:user_id>', methods=['POST'])
-@login_required
-@admin_required
-def reject_user(user_id):
-    db_execute("DELETE FROM users WHERE id = %s", (user_id,))
-    flash('Użytkownik odrzucony i usunięty.', 'success')
-    return redirect(url_for('admin_dashboard'))
 
-@app.route('/search')
-@login_required
-@approved_required
-def search():
-    q = request.args.get('q', '').strip()
-    if not q:
-        return jsonify([])
-    rows = db_query("""
-        SELECT t.id, t.title, c.name as category_name
-        FROM techniques t
-        LEFT JOIN categories c ON t.category_id = c.id
-        WHERE t.title ILIKE %s OR t.description ILIKE %s
-        LIMIT 10
-    """, (f'%{q}%', f'%{q}%'))
-    return jsonify(rows)
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+@app.route('/pending-approval')
+def pending_approval():
+    return "Czekaj na zatwierdzenie konta."
+
 
 if __name__ == '__main__':
-    # init DB once
-    try:
-        init_db()
-    except Exception as e:
-        print("init_db error:", e)
     app.run(debug=True)

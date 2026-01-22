@@ -249,18 +249,20 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-    {% if session.user_id %}
+    {% if session.get('user_id') %}
     <div class="container">
         <div class="navbar">
             <h1>🥋 BJJ Techniques Manager</h1>
             <nav>
-                <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                <a href="{{ url_for('dashboard') }}">Strona główna</a>
                 <a href="{{ url_for('techniques') }}">Techniki</a>
-                <a href="{{ url_for('add_technique') }}">Dodaj Technikę</a>
-                {% if session.is_admin %}
+                <a href="{{ url_for('add_technique') }}">Dodaj technikę</a>
+
+                {% if session.get('is_admin') %}
                 <a href="{{ url_for('admin_dashboard') }}">Admin Panel</a>
                 {% endif %}
-                <a href="{{ url_for('logout') }}">Wyloguj ({{ session.username }})</a>
+
+                <a href="{{ url_for('logout') }}">Wyloguj ({{ session.get('username') }})</a>
             </nav>
         </div>
     </div>

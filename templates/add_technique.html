@@ -1,60 +1,42 @@
 {% extends "base.html" %}
-
-{% block title %}Dodaj technikę - BJJ Techniques Manager{% endblock %}
+{% block title %}Dodaj Technikę{% endblock %}
 
 {% block content %}
-<a href="{{ url_for('techniques') }}" style="color: #667eea; text-decoration: none; margin-bottom: 20px; display: inline-block;">
-    ← Powrót do listy technik
-</a>
+<div class="card" style="max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px;">
+    <h2>Dodaj nową technikę</h2>
 
-<h2 style="margin-bottom: 30px;">Dodaj nową technikę</h2>
+    <form method="POST" enctype="multipart/form-data" style="margin-top: 20px;">
+        <div style="margin-bottom: 15px;">
+            <label>Nazwa techniki:</label>
+            <input type="text" name="name" required style="width:100%; padding:8px;">
+        </div>
 
-<form method="POST" action="{{ url_for('add_technique') }}">
-    <div class="form-group">
-        <label for="title">Tytuł techniki *</label>
-        <input type="text" id="title" name="title" required placeholder="Np. Kimura z guardu zamkniętego">
-    </div>
-
-    <div class="form-group">
-        <label for="description">Opis techniki</label>
-        <textarea id="description" name="description" rows="6" placeholder="Szczegółowy opis techniki, krok po kroku..."></textarea>
-    </div>
-
-    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
-        <div class="form-group">
-            <label for="category_id">Kategoria</label>
-            <select id="category_id" name="category_id">
-                <option value="">Wybierz kategorię</option>
-                {% for category in categories %}
-                <option value="{{ category.id }}">{{ category.name }}</option>
+        <div style="margin-bottom: 15px;">
+            <label>Kategoria:</label>
+            <select name="category_id" required style="width:100%; padding:8px;">
+                <option value="">-- Wybierz kategorię --</option>
+                {% for cat in categories %}
+                    <option value="{{ cat.id }}">{{ cat.name }}</option>
                 {% endfor %}
             </select>
         </div>
 
-        <div class="form-group">
-            <label for="position">Pozycja</label>
-            <input type="text" id="position" name="position" placeholder="Np. Guard zamknięty">
+        <div style="margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
+            <label><strong>Opcja 1:</strong> Link do YouTube:</label>
+            <input type="text" name="video_url" placeholder="https://..." style="width:100%; padding:8px;">
         </div>
 
-        <div class="form-group">
-            <label for="difficulty">Poziom trudności</label>
-            <select id="difficulty" name="difficulty">
-                <option value="">Wybierz poziom</option>
-                <option value="easy">Łatwy</option>
-                <option value="medium">Średni</option>
-                <option value="hard">Trudny</option>
-            </select>
+        <div style="margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
+            <label><strong>Opcja 2:</strong> Wgraj film z komputera (.mp4):</label>
+            <input type="file" name="video_file" accept="video/*" style="width:100%; padding:8px;">
         </div>
-    </div>
 
-    <div style="display: flex; gap: 10px; margin-top: 30px;">
-        <button type="submit" class="btn btn-primary">Dodaj technikę</button>
-        <a href="{{ url_for('techniques') }}" class="btn" style="background: #e2e8f0; color: #333;">Anuluj</a>
-    </div>
-</form>
+        <div style="margin-bottom: 15px;">
+            <label>Opis:</label>
+            <textarea name="description" rows="4" style="width:100%; padding:8px;"></textarea>
+        </div>
 
-<div style="margin-top: 30px; padding: 15px; background: #f0f9ff; border-radius: 5px; border-left: 4px solid #3b82f6;">
-    <p style="font-weight: 600; margin-bottom: 10px;">💡 Wskazówka:</p>
-    <p style="color: #666;">Po dodaniu techniki będziesz mógł przesłać filmy treningowe z jej wykonaniem.</p>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Dodaj Technikę</button>
+    </form>
 </div>
 {% endblock %}
