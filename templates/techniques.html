@@ -1,36 +1,78 @@
 {% extends "base.html" %}
-{% block title %}Techniki{% endblock %}
+
+{% block title %}Techniki - BJJ Techniques Manager{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h2>Wszystkie Techniki</h2>
-        <a href="{{ url_for('add_technique') }}" class="btn btn-primary" style="text-decoration: none;">+ Dodaj nową</a>
-    </div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+    <h2>Wszystkie techniki</h2>
+    <a href="{{ url_for('add_technique') }}" class="btn btn-primary">+ Dodaj nową technikę</a>
+</div>
 
-    <table border="1" style="width: 100%; border-collapse: collapse; margin-top: 20px; background: white;">
-        <thead style="background: #f4f4f4;">
-            <tr>
-                <th>Nazwa</th>
-                <th>Opis</th>
-                <th>Wideo</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for tech in techniques %}
-            <tr>
-                <td style="padding: 10px;">{{ tech.name }}</td>
-                <td style="padding: 10px;">{{ tech.description }}</td>
-                <td style="padding: 10px;">
-                    {% if tech.video_url %}
-                        <a href="{{ tech.video_url }}" target="_blank">Zobacz film</a>
-                    {% else %}
-                        Brak filmu
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<form method="GET" action="{{ url_for('techniques') }}" style="background: #f7fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 15px; align-items: end;">
+        <div class="form-group" style="margin-bottom: 0;">
+            <label for="search">Szukaj</label>
+            <input type="text" id="search" name="search" value="{{ request.args.get('search', '') }}" placeholder="Wpisz nazwę lub opis...">
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+            <label for="category">Kategoria</label>
+            <select id="category" name="category">
+                <option value="">Wszystkie</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}" {% if request.args.get('category') == cat.id|string %}selected{% endif %}>
+                    {{ cat.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+            <label for="difficulty">Poziom trudności</label>
+            <select id="difficulty" name="difficulty">
+                <option value="">Wszystkie</option>
+                <option value="easy" {% if request.args.get('difficulty') == 'easy' %}selected{% endif %}>Łatwy</option>
+                <option value="medium" {% if request.args.get('difficulty') == 'medium' %}selected{% endif %}>Średni</option>
+                <option value="hard" {% if request.args.get('difficulty') == 'hard' %}selected{% endif %}>Trudny</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Filtruj</button>
+    </div>
+</form>
+
+<div class="grid">
+    {% for technique in techniques %}
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+            <h4 style="color: #667eea;">{{ technique.title }}</h4>
+            <span class="badge badge-{{ technique.difficulty or 'medium' }}">
+                {{ technique.difficulty or 'Medium' }}
+            </span>
+        </div>
+
+        <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+            {{ technique.description[:120] }}{% if technique.description and technique.description|length > 120 %}...{% endif %}
+        </p>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
+            <div>
+                <p style="font-size: 12px; color: #999;">Kategoria: <strong>{{ technique.category_name or 'Brak' }}</strong></p>
+                <p style="font-size: 12px; color: #999;">Filmów: <strong>{{ technique.video_count }}</strong></p>
+            </div>
+            <div style="text-align: right;">
+                <p style="font-size: 12px; color: #999;">Dodane przez:</p>
+                <p style="font-size: 12px;"><strong>{{ technique.username }}</strong></p>
+            </div>
+        </div>
+
+        <a href="{{ url_for('technique_detail', technique_id=technique.id) }}" class="btn btn-primary" style="width: 100%;">Zobacz szczegóły</a>
+    </div>
+    {% else %}
+    <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 40px;">
+        <p style="color: #999; font-size: 16px;">Nie znaleziono technik spełniających kryteria wyszukiwania.</p>
+        <a href="{{ url_for('techniques') }}" class="btn btn-primary" style="margin-top: 20px;">Wyczyść filtry</a>
+    </div>
+    {% endfor %}
 </div>
 {% endblock %}

@@ -32,7 +32,7 @@
         </div>
         <div>
             <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Data dodania:</p>
-            <p style="font-weight: 600;">{{ technique.created_at[:10] }}</p>
+            <p style="font-weight: 600;">{{ technique.created_at_formatted }}</p>
         </div>
     </div>
 
@@ -76,9 +76,9 @@
                 <div>
                     <h4 style="margin-bottom: 5px;">{{ video.original_filename }}</h4>
                     <p style="font-size: 12px; color: #999;">
-                        Typ: <strong>{{ video.video_type }}</strong> | 
-                        Przesłane przez: <strong>{{ video.username }}</strong> | 
-                        Data: <strong>{{ video.uploaded_at[:10] }}</strong>
+                        Typ: <strong>{{ video.video_type }}</strong> |
+                        Przesłane przez: <strong>{{ video.username }}</strong> |
+                        Data: <strong>{{ video.uploaded_at.strftime('%Y-%m-%d') if video.uploaded_at else 'Brak daty' }}</strong>
                     </p>
                 </div>
             </div>

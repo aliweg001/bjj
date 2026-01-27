@@ -1,42 +1,65 @@
 {% extends "base.html" %}
-{% block title %}Dodaj Technikę{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px;">
+<div style="max-width: 600px; margin: 0 auto;">
     <h2>Dodaj nową technikę</h2>
 
-    <form method="POST" enctype="multipart/form-data" style="margin-top: 20px;">
+    <!-- DODAJ action! -->
+    <form method="POST" action="{{ url_for('add_technique') }}" enctype="multipart/form-data">
+
         <div style="margin-bottom: 15px;">
-            <label>Nazwa techniki:</label>
-            <input type="text" name="name" required style="width:100%; padding:8px;">
+            <label>Nazwa techniki</label>
+            <input type="text" name="name" style="width: 100%; padding: 8px;" required>
         </div>
 
         <div style="margin-bottom: 15px;">
-            <label>Kategoria:</label>
-            <select name="category_id" required style="width:100%; padding:8px;">
+            <label>Kategoria</label>
+            <select name="category_id" style="width: 100%; padding: 8px;" required>
                 <option value="">-- Wybierz kategorię --</option>
                 {% for cat in categories %}
-                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                <option value="{{ cat['id'] }}">{{ cat['name'] }}</option>
                 {% endfor %}
             </select>
         </div>
 
-        <div style="margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
-            <label><strong>Opcja 1:</strong> Link do YouTube:</label>
-            <input type="text" name="video_url" placeholder="https://..." style="width:100%; padding:8px;">
-        </div>
-
-        <div style="margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
-            <label><strong>Opcja 2:</strong> Wgraj film z komputera (.mp4):</label>
-            <input type="file" name="video_file" accept="video/*" style="width:100%; padding:8px;">
+        <div style="margin-bottom: 15px;">
+            <label>Opis</label>
+            <textarea name="description" rows="4" style="width: 100%; padding: 8px;"></textarea>
         </div>
 
         <div style="margin-bottom: 15px;">
-            <label>Opis:</label>
-            <textarea name="description" rows="4" style="width:100%; padding:8px;"></textarea>
+            <label>Poziom trudności</label>
+            <select name="difficulty" style="width: 100%; padding: 8px;">
+                <option value="beginner">Początkujący</option>
+                <option value="intermediate" selected>Średniozaawansowany</option>
+                <option value="advanced">Zaawansowany</option>
+            </select>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Dodaj Technikę</button>
+        <div style="margin-bottom: 15px;">
+            <label>Pozycja</label>
+            <input type="text" name="position" placeholder="np. guard, mount, side control" style="width: 100%; padding: 8px;">
+        </div>
+
+        <hr style="margin: 20px 0;">
+
+        <h3>Dodaj film (opcjonalnie)</h3>
+
+        <div style="margin-bottom: 15px;">
+            <label>Plik wideo (z komputera)</label>
+            <input type="file" name="video_file" accept="video/*">
+            <small style="color: #666;">MP4, AVI, MOV, MKV, WEBM (max 500MB)</small>
+        </div>
+
+        <div style="margin-bottom: 25px;">
+            <label>LUB Link YouTube</label>
+            <input type="text" name="video_url" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; padding: 8px;">
+            <small style="color: #666;">Tylko jeden film możesz dodać - plik LUB link</small>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; background: #28a745; color: white; border: none; cursor: pointer; font-size: 16px;">
+            Zapisz technikę
+        </button>
     </form>
 </div>
 {% endblock %}
