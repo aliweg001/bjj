@@ -35,6 +35,30 @@ def get_db_connection():
     return conn
 
 
+# Funkcja do wyodrębnienia ID z linku YouTube
+import re
+
+
+def extract_youtube_id(url):
+    """Wyodrębnia ID filmu z URL YouTube"""
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=)([\w-]{11})',
+        r'(?:youtu\.be\/)([\w-]{11})',
+        r'(?:youtube\.com\/embed\/)([\w-]{11})'
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+
+# Dodaj funkcję do kontekstu szablonów
+@app.context_processor
+def utility_processor():
+    return dict(extract_youtube_id=extract_youtube_id)
+
 def allowed_file(filename):
     """Sprawdza czy plik ma dozwolone rozszerzenie"""
     ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'wmv', 'flv', 'MP4', 'AVI', 'MOV', 'MKV'}
@@ -83,15 +107,89 @@ def index():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM techniques")
-    count = cur.fetchone()[0]
-    cur.close()
-    conn.close()
-    return render_template('dashboard.html', stats={'total': count}, recent_techniques=[])
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+        # Podstawowe statystyki
+        cur.execute("SELECT COUNT(*) as count FROM techniques")
+        total_techniques = cur.fetchone()['count']
 
+        total_videos = 0
+        recent_videos = []
+        try:
+            cur.execute("SELECT COUNT(*) as count FROM videos")
+            total_videos = cur.fetchone()['count']
+
+            # Pobierz 3 ostatnio dodane filmy
+            cur.execute("""
+                        SELECT v.*,
+                               t.name     as technique_name,
+                               u.username as uploaded_by_name
+                        FROM videos v
+                                 LEFT JOIN techniques t ON v.technique_id = t.id
+                                 LEFT JOIN users u ON v.uploaded_by = u.id
+                        ORDER BY v.uploaded_at DESC LIMIT 3
+                        """)
+            recent_videos = cur.fetchall()
+        except Exception as e:
+            print(f"Błąd przy pobieraniu video: {e}")
+            pass  # Tabela videos może nie istnieć
+
+        # Kategorie
+        categories = []
+        try:
+            cur.execute("SELECT * FROM categories ORDER BY name")
+            categories = cur.fetchall()
+        except:
+            pass
+
+        total_categories = len(categories)
+
+        # Ostatnie techniki
+        recent_techniques = []
+        try:
+            # Spróbuj po created_at
+            cur.execute("""
+                        SELECT t.*, c.name as category_name
+                        FROM techniques t
+                                 LEFT JOIN categories c ON t.category_id = c.id
+                        ORDER BY t.created_at DESC LIMIT 3
+                        """)
+            recent_techniques = cur.fetchall()
+        except:
+            # Jeśli nie działa, spróbuj po id
+            try:
+                cur.execute("""
+                            SELECT t.id, t.name, t.description, c.name as category_name
+                            FROM techniques t
+                                     LEFT JOIN categories c ON t.category_id = c.id
+                            ORDER BY t.id DESC LIMIT 6
+                            """)
+                recent_techniques = cur.fetchall()
+            except:
+                pass
+
+        cur.close()
+        conn.close()
+
+        return render_template('dashboard.html',
+                               total_techniques=total_techniques,
+                               total_videos=total_videos,
+                               total_categories=total_categories,
+                               categories=categories,
+                               recent_techniques=recent_techniques,
+                               recent_videos=recent_videos)
+
+    except Exception as e:
+        print(f"Błąd dashboard: {e}")
+        return render_template('dashboard.html',
+                               total_techniques=0,
+                               total_videos=0,
+                               total_categories=0,
+                               categories=[],
+                               recent_techniques=[],
+                               recent_videos=[])
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -139,21 +237,47 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+
 @app.route('/techniques')
 @login_required
 def techniques():
+    # Pobierz parametr category z URL (jeśli istnieje)
+    category_id = request.args.get('category', type=int)
+
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-                SELECT t.*, c.name as category_name
-                FROM techniques t
-                         LEFT JOIN categories c ON t.category_id = c.id
-                ORDER BY t.id DESC
-                """)
-    techniques = cur.fetchall()
+
+    # Jeśli podano kategorię, filtruj
+    if category_id:
+        cur.execute("""
+                    SELECT t.*, c.name as category_name
+                    FROM techniques t
+                             LEFT JOIN categories c ON t.category_id = c.id
+                    WHERE t.category_id = %s
+                    ORDER BY t.id DESC
+                    """, (category_id,))
+    else:
+        # Wszystkie techniki
+        cur.execute("""
+                    SELECT t.*, c.name as category_name
+                    FROM techniques t
+                             LEFT JOIN categories c ON t.category_id = c.id
+                    ORDER BY t.id DESC
+                    """)
+
+    techniques_list = cur.fetchall()
+
+    # Pobierz wszystkie kategorie dla filtrowania
+    cur.execute("SELECT * FROM categories ORDER BY name")
+    categories = cur.fetchall()
+
     cur.close()
     conn.close()
-    return render_template('techniques.html', techniques=techniques)
+
+    return render_template('techniques.html',
+                           techniques=techniques_list,
+                           categories=categories,
+                           selected_category=category_id)
 
 
 @app.route('/technique/add', methods=['GET', 'POST'])
@@ -165,22 +289,80 @@ def add_technique():
         description = request.form.get('description')
         difficulty = request.form.get('difficulty', 'intermediate')
         position = request.form.get('position', '')
+        video_url = request.form.get('video_url', '').strip()
+
+        # Pobierz aktualnego użytkownika
+        current_user_id = session.get('user_id')
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # TYLKO technika, bez filmów
-        cur.execute("""
-                    INSERT INTO techniques (name, category_id, description, difficulty, position)
-                    VALUES (%s, %s, %s, %s, %s) RETURNING id
-                    """, (name, category_id, description, difficulty, position))
+        try:
+            # 1. Dodaj technikę
+            cur.execute("""
+                        INSERT INTO techniques (name, category_id, description, difficulty, position)
+                        VALUES (%s, %s, %s, %s, %s) RETURNING id
+                        """, (name, category_id, description, difficulty, position))
 
-        technique_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
+            technique_id = cur.fetchone()[0]
 
-        flash('Technika została dodana!', 'success')
+            # 2. Obsługa pliku wideo
+            video_file = request.files.get('video_file')
+            video_filename = None
+            original_filename = None
+
+            if video_file and video_file.filename:
+                # Sprawdź rozszerzenie
+                allowed_extensions = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
+                file_ext = video_file.filename.rsplit('.', 1)[1].lower() if '.' in video_file.filename else ''
+
+                if file_ext in allowed_extensions:
+                    # Zabezpiecz nazwę pliku
+                    original_filename = video_file.filename
+                    video_filename = f"video_{technique_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}"
+
+                    # Zapisz plik (przykładowa ścieżka - dostosuj do swojej struktury)
+                    upload_folder = 'static/uploads/videos'
+                    os.makedirs(upload_folder, exist_ok=True)
+                    file_path = os.path.join(upload_folder, video_filename)
+                    video_file.save(file_path)
+
+                    # Dodaj rekord do tabeli videos
+                    cur.execute("""
+                                INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
+                                                    uploaded_at)
+                                VALUES (%s, %s, %s, %s, %s, NOW())
+                                """, (technique_id, video_filename, original_filename, 'training', current_user_id))
+
+            # 3. Obsługa linku YouTube (jeśli nie ma pliku)
+            elif video_url and not video_file:
+                # Jeśli to link YouTube
+                if 'youtube.com' in video_url or 'youtu.be' in video_url:
+                    cur.execute("""
+                                INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
+                                                    uploaded_at)
+                                VALUES (%s, %s, %s, %s, %s, NOW())
+                                """, (technique_id, video_url, video_url, 'youtube', current_user_id))
+                else:
+                    # Dla innych linków
+                    cur.execute("""
+                                INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
+                                                    uploaded_at)
+                                VALUES (%s, %s, %s, %s, %s, NOW())
+                                """, (technique_id, video_url, video_url, 'external', current_user_id))
+
+            conn.commit()
+            flash('Technika została dodana!', 'success')
+
+        except Exception as e:
+            conn.rollback()
+            flash(f'Wystąpił błąd: {str(e)}', 'error')
+            return redirect(url_for('add_technique'))
+
+        finally:
+            cur.close()
+            conn.close()
+
         return redirect(url_for('technique_detail', technique_id=technique_id))
 
     # GET - pokaż formularz
@@ -192,8 +374,6 @@ def add_technique():
     conn.close()
 
     return render_template('add_technique.html', categories=categories)
-
-
 
 @app.route('/technique/<int:technique_id>')
 @login_required
