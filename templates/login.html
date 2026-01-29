@@ -9,8 +9,25 @@
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
-          <div style="padding: 10px; margin-bottom: 20px; border-radius: 5px; background-color: {% if category == 'error' %}#f8d7da{% else %}#d4edda{% endif %}; color: {% if category == 'error' %}#721c24{% else %}#155724{% endif %};">
+          <div style="padding: 15px; margin-bottom: 20px; border-radius: 8px; border-left: 4px solid;
+              {% if category == 'success' %}
+                  background-color: #d1fae5; border-color: #10b981; color: #065f46;
+              {% elif category == 'error' %}
+                  background-color: #fee2e2; border-color: #ef4444; color: #991b1b;
+              {% elif category == 'warning' %}
+                  background-color: #fef3c7; border-color: #f59e0b; color: #92400e;
+              {% elif category == 'info' %}
+                  background-color: #dbeafe; border-color: #3b82f6; color: #1e40af;
+              {% else %}
+                  background-color: #f8f9fa; border-color: #6c757d; color: #495057;
+              {% endif %}">
             {{ message }}
+
+            {% if category == 'warning' %}
+                <p style="margin-top: 10px; font-size: 14px; margin-bottom: 0; opacity: 0.9;">
+                    Prosimy o cierpliwość. Administracja zwykle zatwierdza konta w ciągu 24 godzin.
+                </p>
+            {% endif %}
           </div>
         {% endfor %}
       {% endif %}
@@ -18,22 +35,64 @@
 
     <form method="POST" action="{{ url_for('login') }}">
         <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Login:</label>
-            <input type="text" name="username" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #4a5568;">Login:</label>
+            <input type="text" name="username" required
+                   style="width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+                          box-sizing: border-box; font-size: 16px; transition: border-color 0.3s;"
+                   onfocus="this.style.borderColor='#4a90e2'; this.style.boxShadow='0 0 0 3px rgba(74, 144, 226, 0.1)'"
+                   onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
         </div>
 
         <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Hasło:</label>
-            <input type="password" name="password" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #4a5568;">Hasło:</label>
+            <input type="password" name="password" required
+                   style="width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+                          box-sizing: border-box; font-size: 16px; transition: border-color 0.3s;"
+                   onfocus="this.style.borderColor='#4a90e2'; this.style.boxShadow='0 0 0 3px rgba(74, 144, 226, 0.1)'"
+                   onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
         </div>
 
-        <button type="submit" style="width: 100%; padding: 12px; border: none; border-radius: 8px; background: #4a90e2; color: white; font-size: 16px; font-weight: bold; cursor: pointer;">
+        <button type="submit"
+                style="width: 100%; padding: 14px; border: none; border-radius: 8px;
+                       background: linear-gradient(135deg, #4a90e2 0%, #5a67d8 100%);
+                       color: white; font-size: 16px; font-weight: bold; cursor: pointer;
+                       transition: transform 0.2s, box-shadow 0.2s;"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(74, 144, 226, 0.3)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
             Zaloguj się
         </button>
     </form>
 
-    <div style="text-align: center; margin-top: 20px; color: #666;">
-        Nie masz konta? <a href="{{ url_for('register') }}" style="color: #4a90e2; text-decoration: none; font-weight: bold;">Zarejestruj się</a>
+    <div style="text-align: center; margin-top: 25px; color: #718096;">
+        Nie masz konta?
+        <a href="{{ url_for('register') }}"
+           style="color: #4a90e2; text-decoration: none; font-weight: bold; transition: color 0.3s;"
+           onmouseover="this.style.color='#3182ce'"
+           onmouseout="this.style.color='#4a90e2'">
+            Zarejestruj się
+        </a>
+    </div>
+
+    <div style="text-align: center; margin-top: 15px; font-size: 14px; color: #a0aec0;">
+        Po rejestracji konto wymaga zatwierdzenia przez administratora.
     </div>
 </div>
+
+<style>
+    /* Dodatkowe style dla lepszej responsywności */
+    @media (max-width: 480px) {
+        div[style*="max-width: 400px;"] {
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        h2 {
+            font-size: 24px;
+        }
+
+        input, button {
+            font-size: 14px;
+        }
+    }
+</style>
 {% endblock %}

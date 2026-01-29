@@ -39,18 +39,35 @@
             font-size: 24px;
         }
 
+        .navbar nav {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
         .navbar nav a {
             color: #333;
             text-decoration: none;
-            margin-left: 20px;
             padding: 8px 16px;
             border-radius: 5px;
             transition: all 0.3s;
+            font-weight: 500;
         }
 
         .navbar nav a:hover {
             background: #667eea;
             color: white;
+        }
+
+        /* Styl dla linku admina */
+        .admin-link {
+            background: #f59e0b;
+            color: white !important;
+            font-weight: 600;
+        }
+
+        .admin-link:hover {
+            background: #d97706;
         }
 
         .content {
@@ -81,45 +98,62 @@
         }
 
         .btn-success {
-            background: #48bb78;
+            background: #10b981;
             color: white;
         }
 
         .btn-success:hover {
-            background: #38a169;
+            background: #059669;
         }
 
         .btn-danger {
-            background: #f56565;
+            background: #ef4444;
             color: white;
         }
 
         .btn-danger:hover {
-            background: #e53e3e;
+            background: #dc2626;
         }
 
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
+        /* Alerty - zaktualizowane kolory */
         .alert {
             padding: 15px;
-            border-radius: 5px;
+            border-radius: 8px;
             margin-bottom: 20px;
+            border-left: 4px solid;
         }
 
         .alert-success {
-            background: #c6f6d5;
-            color: #22543d;
-            border-left: 4px solid #48bb78;
+            background: #d1fae5;
+            color: #065f46;
+            border-color: #10b981;
         }
 
         .alert-error {
-            background: #fed7d7;
-            color: #742a2a;
-            border-left: 4px solid #f56565;
+            background: #fee2e2;
+            color: #991b1b;
+            border-color: #ef4444;
         }
 
         .alert-warning {
-            background: #fef5e7;
-            color: #7c4a03;
-            border-left: 4px solid #f59e0b;
+            background: #fef3c7;
+            color: #92400e;
+            border-color: #f59e0b;
+        }
+
+        .alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border-color: #3b82f6;
         }
 
         .form-group {
@@ -245,6 +279,60 @@
             max-width: 800px;
             border-radius: 8px;
         }
+
+        /* Styl dla aktywnego linku */
+        .active-link {
+            background: #667eea;
+            color: white !important;
+        }
+
+        /* Responsywność */
+        @media (max-width: 768px) {
+            .navbar {
+                flex-direction: column;
+                gap: 15px;
+                padding: 15px;
+            }
+
+            .navbar nav {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .navbar nav a {
+                padding: 6px 12px;
+                font-size: 14px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .navbar h1 {
+                font-size: 20px;
+            }
+
+            .container {
+                padding: 0 10px;
+            }
+        }
+
+        /* User info */
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 20px;
+            padding-left: 20px;
+            border-left: 1px solid #e2e8f0;
+        }
+
+        .username {
+            font-weight: 600;
+            color: #667eea;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -254,15 +342,33 @@
         <div class="navbar">
             <h1>🥋 BJJ Techniques Manager</h1>
             <nav>
-                <a href="{{ url_for('dashboard') }}">Strona główna</a>
-                <a href="{{ url_for('techniques') }}">Techniki</a>
-                <a href="{{ url_for('add_technique') }}">Dodaj technikę</a>
+                <a href="{{ url_for('dashboard') }}"
+                   {% if request.endpoint == 'dashboard' %}class="active-link"{% endif %}>
+                    Strona główna
+                </a>
+                <a href="{{ url_for('techniques') }}"
+                   {% if request.endpoint == 'techniques' %}class="active-link"{% endif %}>
+                    Techniki
+                </a>
+                <a href="{{ url_for('add_technique') }}"
+                   {% if request.endpoint == 'add_technique' %}class="active-link"{% endif %}>
+                    Dodaj technikę
+                </a>
 
                 {% if session.get('is_admin') %}
-                <a href="{{ url_for('admin_dashboard') }}">Admin Panel</a>
+                <a href="{{ url_for('admin_users') }}"
+                   class="admin-link"
+                   {% if request.endpoint == 'admin_users' %}style="background: #d97706;"{% endif %}>
+                    👑 Panel admina
+                </a>
                 {% endif %}
 
-                <a href="{{ url_for('logout') }}">Wyloguj ({{ session.get('username') }})</a>
+                <div class="user-info">
+                    <span class="username">{{ session.get('username') }}</span>
+                    <a href="{{ url_for('logout') }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 14px;">
+                        Wyloguj
+                    </a>
+                </div>
             </nav>
         </div>
     </div>

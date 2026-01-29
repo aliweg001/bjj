@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Zarządzanie użytkownikami - BJJ Techniques Manager{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px;">Zarządzanie użytkownikami</h2>
+
+<!-- Użytkownicy oczekujący na zatwierdzenie -->
+<div class="card" style="margin-bottom: 30px;">
+    <h3 style="margin-bottom: 20px; color: #f59e0b;">Użytkownicy oczekujący na zatwierdzenie ({{ pending_users|length }})</h3>
+    
+    {% if pending_users %}
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f7fafc;">
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">ID</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Nazwa użytkownika</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Data rejestracji</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in pending_users %}
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 12px;">{{ user.id }}</td>
+                    <td style="padding: 12px; font-weight: 600;">{{ user.username }}</td>
+                    <td style="padding: 12px;">
+                        {% if user.created_at %}
+                            {{ user.created_at.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                            Brak danych
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px;">
+                        <div style="display: flex; gap: 10px;">
+                            <a href="{{ url_for('approve_user', user_id=user.id) }}" 
+                               class="btn btn-success" 
+                               style="padding: 6px 12px; font-size: 14px;"
+                               onclick="return confirm('Czy na pewno chcesz zatwierdzić użytkownika {{ user.username }}?')">
+                                ✅ Zatwierdź
+                            </a>
+                            <a href="{{ url_for('reject_user', user_id=user.id) }}" 
+                               class="btn btn-danger" 
+                               style="padding: 6px 12px; font-size: 14px;"
+                               onclick="return confirm('Czy na pewno chcesz odrzucić użytkownika {{ user.username }}?')">
+                                ❌ Odrzuć
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="text-align: center; padding: 30px;">
+        <div style="font-size: 48px; color: #ccc; margin-bottom: 15px;">👤</div>
+        <p style="color: #999; font-size: 16px;">Brak użytkowników oczekujących na zatwierdzenie</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Wszyscy użytkownicy -->
+<div class="card">
+    <h3 style="margin-bottom: 20px; color: #667eea;">Wszyscy użytkownicy</h3>
+    
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f7fafc;">
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">ID</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Nazwa użytkownika</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Status</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Data rejestracji</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Data zatwierdzenia</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in all_users %}
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 12px;">{{ user.id }}</td>
+                    <td style="padding: 12px; font-weight: 600;">
+                        {{ user.username }}
+                        {% if user.id == session.user_id %}
+                            <span style="background: #667eea; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-left: 5px;">Ty</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px;">
+                        {% if user.is_admin %}
+                            <span style="background: #10b981; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Administrator</span>
+                        {% elif user.is_approved %}
+                            <span style="background: #3b82f6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Zatwierdzony</span>
+                        {% else %}
+                            <span style="background: #f59e0b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Oczekujący</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px;">
+                        {% if user.created_at %}
+                            {{ user.created_at.strftime('%Y-%m-%d') }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px;">
+                        {% if user.approved_at %}
+                            {{ user.approved_at.strftime('%Y-%m-%d') }}
+                            {% if user.approved_by_name %}
+                                <br><small style="color: #999;">przez: {{ user.approved_by_name }}</small>
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px;">
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            {% if user.is_approved and not user.is_admin %}
+                                <a href="{{ url_for('make_admin', user_id=user.id) }}" 
+                                   class="btn btn-primary" 
+                                   style="padding: 4px 8px; font-size: 12px;"
+                                   onclick="return confirm('Czy na pewno chcesz ustawić {{ user.username }} jako administratora?')">
+                                    👑 Nadaj admina
+                                </a>
+                            {% endif %}
+                            
+                            {% if user.is_admin and user.id != session.user_id %}
+                                <a href="{{ url_for('remove_admin', user_id=user.id) }}" 
+                                   class="btn btn-warning" 
+                                   style="padding: 4px 8px; font-size: 12px; background: #f59e0b;"
+                                   onclick="return confirm('Czy na pewno chcesz usunąć uprawnienia administratora dla {{ user.username }}?')">
+                                    👑 Usuń admina
+                                </a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .card {
+        background: white;
+        border-radius: 10px;
+        padding: 25px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        margin-bottom: 30px;
+    }
+    
+    .btn-success {
+        background: #10b981;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 6px;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        display: inline-block;
+        transition: background 0.3s;
+    }
+    
+    .btn-success:hover {
+        background: #059669;
+    }
+    
+    .btn-danger {
+        background: #ef4444;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 6px;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        display: inline-block;
+        transition: background 0.3s;
+    }
+    
+    .btn-danger:hover {
+        background: #dc2626;
+    }
+    
+    .btn-warning {
+        background: #f59e0b;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 6px;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        display: inline-block;
+        transition: background 0.3s;
+    }
+    
+    .btn-warning:hover {
+        background: #d97706;
+    }
+    
+    table {
+        width: 100%;
+    }
+    
+    th {
+        font-weight: 600;
+        color: #4a5568;
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 0.05em;
+    }
+    
+    tr:hover {
+        background: #f8fafc;
+    }
+</style>
+{% endblock %}

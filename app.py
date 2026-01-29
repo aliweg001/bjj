@@ -4,17 +4,19 @@ import psycopg2.extras
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from functools import wraps
 from werkzeug.utils import secure_filename
-# Na początku pliku, z innymi importami
-from datetime import datetime  # dla datetime.now()
-from werkzeug.utils import secure_filename  # dla secure_filename()
-import os  # dla os.path.join() (jeśli jeszcze nie masz)
+from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
+import re
+
+load_dotenv()
+
 app = Flask(__name__)
 app.secret_key = 'bjj_klucz_ostateczny'
 
 # --- 1. OMIJANIE BŁĘDU "ł" W ŚCIEŻCE WINDOWS ---
-# To jest najważniejsza część. Mówimy bibliotece: "Nie szukaj plików w folderze użytkownika!"
-os.environ["PGPASSFILE"] = "NUL"  # Windowsowy "śmietnik", żeby nie szukał w folderze z 'ł'
-os.environ["PGSSLMODE"] = "disable"  # Wyłączamy szukanie certyfikatów SSL
+os.environ["PGPASSFILE"] = "NUL"
+os.environ["PGSSLMODE"] = "disable"
 
 # --- 2. KONFIGURACJA ŚCIEŻEK ---
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
@@ -22,7 +24,7 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 
 
-# --- 3. POŁĄCZENIE PRZEZ URI (Jeden string) ---
+# --- 3. POŁĄCZENIE Z BAZĄ DANYCH ---
 def get_db_connection():
     conn = psycopg2.connect(
         host="localhost",
@@ -35,10 +37,7 @@ def get_db_connection():
     return conn
 
 
-# Funkcja do wyodrębnienia ID z linku YouTube
-import re
-
-
+# --- FUNKCJE POMOCNICZE ---
 def extract_youtube_id(url):
     """Wyodrębnia ID filmu z URL YouTube"""
     patterns = [
@@ -53,11 +52,26 @@ def extract_youtube_id(url):
             return match.group(1)
     return None
 
+@app.template_filter('youtube_id')
+def youtube_id_filter(url):
+    """Wyodrębnia ID filmu YouTube z URL."""
+    # Przykładowe formaty URL:
+    # https://www.youtube.com/watch?v=7byWDodfgvE
+    # https://youtu.be/7byWDodfgvE
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=)([\w-]+)',
+        r'(?:youtu\.be\/)([\w-]+)'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
 
-# Dodaj funkcję do kontekstu szablonów
 @app.context_processor
 def utility_processor():
     return dict(extract_youtube_id=extract_youtube_id)
+
 
 def allowed_file(filename):
     """Sprawdza czy plik ma dozwolone rozszerzenie"""
@@ -74,6 +88,7 @@ def allowed_file(filename):
 
     return result
 
+
 # --- 4. BLOKADA LOGOWANIA ---
 def login_required(f):
     @wraps(f)
@@ -85,25 +100,37 @@ def login_required(f):
     return decorated_function
 
 
+def is_admin():
+    """Sprawdza czy zalogowany użytkownik jest administratorem"""
+    if 'user_id' not in session:
+        return False
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT is_admin FROM users WHERE id = %s", (session['user_id'],))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    return result and result[0]
+
+
+def admin_required(f):
+    """Dekorator wymagający uprawnień administratora"""
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not is_admin():
+            flash('Brak uprawnień administratora.', 'error')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
 # --- 5. TRASY ---
 
 @app.route('/')
-@login_required
-def index():
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-                SELECT t.*, c.name as category_name
-                FROM techniques t
-                         LEFT JOIN categories c ON t.category_id = c.id
-                ORDER BY t.id DESC
-                """)
-    techniques = cur.fetchall()
-    cur.close()
-    conn.close()
-    return render_template('techniques.html', techniques=techniques)
-
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -134,7 +161,7 @@ def dashboard():
             recent_videos = cur.fetchall()
         except Exception as e:
             print(f"Błąd przy pobieraniu video: {e}")
-            pass  # Tabela videos może nie istnieć
+            pass
 
         # Kategorie
         categories = []
@@ -149,7 +176,6 @@ def dashboard():
         # Ostatnie techniki
         recent_techniques = []
         try:
-            # Spróbuj po created_at
             cur.execute("""
                         SELECT t.*, c.name as category_name
                         FROM techniques t
@@ -158,7 +184,6 @@ def dashboard():
                         """)
             recent_techniques = cur.fetchall()
         except:
-            # Jeśli nie działa, spróbuj po id
             try:
                 cur.execute("""
                             SELECT t.id, t.name, t.description, c.name as category_name
@@ -190,6 +215,8 @@ def dashboard():
                                categories=[],
                                recent_techniques=[],
                                recent_videos=[])
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -197,18 +224,35 @@ def login():
         p = request.form.get('password')
 
         conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, username FROM users WHERE username = %s AND password = %s", (u, p))
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Pobierz użytkownika z zahashowanym hasłem
+        cur.execute("""
+                    SELECT id, username, password, is_admin, is_approved
+                    FROM users
+                    WHERE username = %s
+                    """, (u,))
         user = cur.fetchone()
 
         cur.close()
         conn.close()
 
-        if user:
-            session['user_id'] = user[0]
-            session['username'] = user[1]
+        if user and check_password_hash(user['password'], p):
+            # Sprawdź czy konto jest zatwierdzone
+            if not user['is_approved']:
+                flash('Twoje konto oczekuje na zatwierdzenie przez administratora.', 'warning')
+                return render_template('login.html')
+
+            # Zaloguj użytkownika
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['is_admin'] = user['is_admin']
+
+            flash('Zalogowano pomyślnie!', 'success')
             return redirect(url_for('dashboard'))
-        flash('Bledne dane logowania')
+
+        flash('Błędne dane logowania', 'error')
+
     return render_template('login.html')
 
 
@@ -217,18 +261,38 @@ def register():
     if request.method == 'POST':
         u = request.form.get('username')
         p = request.form.get('password')
+
+        # Hashowanie hasła przed zapisaniem do bazy
+        hashed_password = generate_password_hash(p)
+
         conn = get_db_connection()
         cur = conn.cursor()
         try:
-            cur.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (u, p))
+            # Sprawdź czy użytkownik już istnieje
+            cur.execute("SELECT id FROM users WHERE username = %s", (u,))
+            if cur.fetchone():
+                flash('Użytkownik już istnieje!', 'error')
+                return render_template('register.html')
+
+            # Dodaj nowego użytkownika (domyślnie niezatwierdzony, nie admin)
+            cur.execute("""
+                        INSERT INTO users (username, password, is_admin, is_approved, created_at)
+                        VALUES (%s, %s, FALSE, FALSE, NOW())
+                        """, (u, hashed_password))
+
             conn.commit()
-            flash('Konto utworzone! Zaloguj się.')
+
+            flash('Konto zostało utworzone! Oczekuje na zatwierdzenie przez administratora.', 'info')
             return redirect(url_for('login'))
-        except:
-            flash('Użytkownik już istnieje!')
+
+        except Exception as e:
+            conn.rollback()
+            print(f"Błąd rejestracji: {e}")
+            flash('Wystąpił błąd podczas rejestracji.', 'error')
         finally:
             cur.close()
             conn.close()
+
     return render_template('register.html')
 
 
@@ -241,31 +305,69 @@ def logout():
 @app.route('/techniques')
 @login_required
 def techniques():
-    # Pobierz parametr category z URL (jeśli istnieje)
+    # Pobierz parametry z URL
+    search_query = request.args.get('search', '')
     category_id = request.args.get('category', type=int)
+    difficulty = request.args.get('difficulty', '')
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # Jeśli podano kategorię, filtruj
-    if category_id:
-        cur.execute("""
-                    SELECT t.*, c.name as category_name
-                    FROM techniques t
-                             LEFT JOIN categories c ON t.category_id = c.id
-                    WHERE t.category_id = %s
-                    ORDER BY t.id DESC
-                    """, (category_id,))
-    else:
-        # Wszystkie techniki
-        cur.execute("""
-                    SELECT t.*, c.name as category_name
-                    FROM techniques t
-                             LEFT JOIN categories c ON t.category_id = c.id
-                    ORDER BY t.id DESC
-                    """)
+    # Buduj zapytanie dynamicznie
+    query = """
+            SELECT t.*,
+                   c.name                                                      as category_name,
+                   (SELECT COUNT(*) FROM videos v WHERE v.technique_id = t.id) as video_count
+            FROM techniques t
+                     LEFT JOIN categories c ON t.category_id = c.id
+            WHERE 1 = 1 \
+            """
+    params = []
 
+    # Filtry
+    if search_query:
+        query += " AND (LOWER(t.name) LIKE LOWER(%s) OR LOWER(t.description) LIKE LOWER(%s))"
+        search_pattern = f"%{search_query}%"
+        params.extend([search_pattern, search_pattern])
+
+    if category_id:
+        query += " AND t.category_id = %s"
+        params.append(category_id)
+
+    if difficulty:
+        query += " AND t.difficulty = %s"
+        params.append(difficulty)
+
+    query += " ORDER BY t.id DESC"
+
+    cur.execute(query, params)
     techniques_list = cur.fetchall()
+
+    # Pobierz miniatury filmów dla każdej techniki
+    for technique in techniques_list:
+        # Pobierz pierwszy film (jeśli istnieje) dla miniatury
+        cur.execute("""
+                    SELECT v.*
+                    FROM videos v
+                    WHERE v.technique_id = %s
+                    ORDER BY v.uploaded_at DESC LIMIT 1
+                    """, (technique['id'],))
+
+        video = cur.fetchone()
+        if video:
+            technique['thumbnail_video'] = video
+
+            # Określ typ miniatury
+            if video['video_type'] == 'youtube' and (
+                    'youtube.com' in video['filename'] or 'youtu.be' in video['filename']):
+                yt_match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})',
+                                     video['filename'])
+                if yt_match:
+                    technique['thumbnail_yt_id'] = yt_match.group(1)
+                else:
+                    technique['thumbnail_yt_id'] = None
+            else:
+                technique['thumbnail_yt_id'] = None
 
     # Pobierz wszystkie kategorie dla filtrowania
     cur.execute("SELECT * FROM categories ORDER BY name")
@@ -277,7 +379,9 @@ def techniques():
     return render_template('techniques.html',
                            techniques=techniques_list,
                            categories=categories,
-                           selected_category=category_id)
+                           search_query=search_query,
+                           selected_category=category_id,
+                           selected_difficulty=difficulty)
 
 
 @app.route('/technique/add', methods=['GET', 'POST'])
@@ -321,11 +425,23 @@ def add_technique():
                     original_filename = video_file.filename
                     video_filename = f"video_{technique_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}"
 
-                    # Zapisz plik (przykładowa ścieżka - dostosuj do swojej struktury)
-                    upload_folder = 'static/uploads/videos'
+                    # ZMIANA: Użyj właściwej ścieżki
+                    # Opcja 1: Ścieżka względna (względem głównego katalogu projektu)
+                    upload_folder = 'static/uploads'
+
+                    # Opcja 2: Ścieżka bezwzględna (jeśli potrzebujesz)
+                    # upload_folder = r'C:\Users\u_weg\PycharmProjects\bjj\static\uploads'
+
+                    # Upewnij się, że folder istnieje
                     os.makedirs(upload_folder, exist_ok=True)
+
+                    # Pełna ścieżka do zapisu
                     file_path = os.path.join(upload_folder, video_filename)
+
+                    # Zapis pliku - to już kopiuje plik z formularza do wskazanej lokalizacji
                     video_file.save(file_path)
+
+                    print(f"Plik zapisany w: {file_path}")  # Dla debugowania
 
                     # Dodaj rekord do tabeli videos
                     cur.execute("""
@@ -375,6 +491,7 @@ def add_technique():
 
     return render_template('add_technique.html', categories=categories)
 
+
 @app.route('/technique/<int:technique_id>')
 @login_required
 def technique_detail(technique_id):
@@ -400,16 +517,22 @@ def technique_detail(technique_id):
         conn.close()
         return redirect(url_for('techniques'))
 
-    # 2. Sprawdź filmy
+    # 2. Sprawdź filmy - DOŁĄCZ DANE UŻYTKOWNIKA
     cur.execute('''
-                SELECT v.*
+                SELECT v.*,
+                       u.username as uploaded_by_username -- To jest kluczowe!
                 FROM videos v
+                         LEFT JOIN users u ON v.uploaded_by = u.id -- JOIN z tabelą users
                 WHERE v.technique_id = %s
                 ORDER BY v.uploaded_at DESC
                 ''', (technique_id,))
 
     videos = cur.fetchall()
     print(f"2. Liczba filmów w bazie: {len(videos)}")
+
+    # Debug: sprawdź czy mamy username
+    for i, video in enumerate(videos):
+        print(f"   Film #{i + 1}: uploaded_by={video.get('uploaded_by')}, username={video.get('uploaded_by_username')}")
 
     # 3. Sprawdź każdy film szczegółowo
     import os
@@ -420,42 +543,57 @@ def technique_detail(technique_id):
         print(f"   - ID: {video['id']}")
         print(f"   - Filename: {video['filename']}")
         print(f"   - Original: {video['original_filename']}")
+        print(f"   - uploaded_by (ID): {video['uploaded_by']}")
+        print(f"   - uploaded_by_username: {video.get('uploaded_by_username', 'BRAK')}")
 
-        # Sprawdź fizyczny plik
-        filepath = os.path.join(upload_folder, video['filename'])
-        file_exists = os.path.exists(filepath)
-        file_size = os.path.getsize(filepath) if file_exists else 0
+        # Sprawdź fizyczny plik (tylko dla plików lokalnych)
+        if video['video_type'] != 'youtube':
+            filepath = os.path.join(upload_folder, video['filename'])
+            file_exists = os.path.exists(filepath)
+            file_size = os.path.getsize(filepath) if file_exists else 0
 
-        print(f"   - Plik istnieje: {file_exists}")
-        print(f"   - Ścieżka: {filepath}")
-        print(f"   - Rozmiar: {file_size} bajtów")
+            print(f"   - Plik istnieje: {file_exists}")
+            print(f"   - Ścieżka: {filepath}")
+            print(f"   - Rozmiar: {file_size} bajtów")
 
-        # Sprawdź URL
-        video_url = f"/static/uploads/{video['filename']}"
-        print(f"   - URL: {video_url}")
+            # Sprawdź URL
+            video_url = f"/static/uploads/{video['filename']}"
+            print(f"   - URL: {video_url}")
 
-    # Formatuj daty
+    # Formatuj daty dla techniki
     if technique.get('created_at'):
         technique['created_at_formatted'] = technique['created_at'].strftime('%Y-%m-%d')
     else:
         technique['created_at_formatted'] = 'Brak daty'
 
+    # Formatuj daty dla filmów i upewnij się, że username jest dostępny
     for video in videos:
         if video.get('uploaded_at'):
             video['uploaded_at_formatted'] = video['uploaded_at'].strftime('%Y-%m-%d')
         else:
             video['uploaded_at_formatted'] = 'Brak daty'
 
+        # Ustaw username dla łatwiejszego dostępu w szablonie
+        # Używamy 'username' zamiast 'uploaded_by_username' dla zgodności z szablonem
+        if 'uploaded_by_username' in video:
+            video['username'] = video['uploaded_by_username']
+        else:
+            # Jeśli JOIN nie zwrócił username, pobierz go osobno
+            cur.execute('SELECT username FROM users WHERE id = %s', (video['uploaded_by'],))
+            user_result = cur.fetchone()
+            video['username'] = user_result['username'] if user_result else 'Nieznany'
+
     cur.close()
     conn.close()
 
-    print(f"=== DEBUG: Koniec ===")
+    print(f"\n=== DEBUG: Przekazuję do szablonu ===")
+    print(f"Technika: {technique['name']}")
+    for i, video in enumerate(videos):
+        print(f"Film {i + 1}: username={video.get('username')}")
 
     return render_template('technique_detail.html',
                            technique=technique,
                            videos=videos)
-
-
 @app.route('/technique/<int:technique_id>/upload-video', methods=['POST'])
 @login_required
 def upload_video(technique_id):
@@ -516,8 +654,7 @@ def upload_video(technique_id):
             conn = get_db_connection()
             cur = conn.cursor()
 
-            # SPRAWDŹ: czy masz kolumnę uploaded_by?
-            user_id = session.get('user_id', 1)  # tymczasowo 1 jeśli brak
+            user_id = session.get('user_id', 1)
 
             print(f"DEBUG: Wstawiam do bazy:")
             print(f"  technique_id: {technique_id}")
@@ -526,27 +663,17 @@ def upload_video(technique_id):
             print(f"  video_type: {video_type}")
             print(f"  uploaded_by: {user_id}")
 
-            # Wersja 1: Z uploaded_by
             cur.execute('''
                         INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by)
                         VALUES (%s, %s, %s, %s, %s) RETURNING id
                         ''', (technique_id, filename, file.filename, video_type, user_id))
 
-            # Wersja 2: BEZ uploaded_by (jeśli nie masz kolumny)
-            # cur.execute('''
-            #     INSERT INTO videos (technique_id, filename, original_filename, video_type)
-            #     VALUES (%s, %s, %s, %s)
-            #     RETURNING id
-            # ''', (technique_id, filename, file.filename, video_type))
-
-            # Pobierz ID nowego rekordu
             new_id = cur.fetchone()[0]
             print(f"DEBUG: Wstawiono rekord z ID: {new_id}")
 
             conn.commit()
             print(f"DEBUG: Commit wykonany")
 
-            # Sprawdź czy rekord został dodany
             cur.execute('SELECT COUNT(*) as count FROM videos WHERE id = %s', (new_id,))
             count = cur.fetchone()[0]
             print(f"DEBUG: Potwierdzenie - rekordów z ID {new_id}: {count}")
@@ -562,7 +689,6 @@ def upload_video(technique_id):
             import traceback
             traceback.print_exc()
 
-            # Usuń plik jeśli błąd bazy
             if os.path.exists(filepath):
                 os.remove(filepath)
                 print(f"DEBUG: Usunięto plik {filepath} po błędzie bazy")
@@ -574,6 +700,192 @@ def upload_video(technique_id):
         flash('Niedozwolony typ pliku. Dozwolone: mp4, avi, mov, mkv, webm', 'error')
 
     return redirect(url_for('technique_detail', technique_id=technique_id))
+
+
+# --- PANEL ADMINISTRATORA ---
+
+@app.route('/admin/users')
+@login_required
+@admin_required
+def admin_users():
+    """Lista użytkowników oczekujących na zatwierdzenie"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Pobierz użytkowników oczekujących na zatwierdzenie
+    cur.execute("""
+                SELECT id, username, created_at
+                FROM users
+                WHERE is_approved = FALSE
+                ORDER BY created_at DESC
+                """)
+    pending_users = cur.fetchall()
+
+    # Pobierz wszystkich użytkowników
+    cur.execute("""
+                SELECT u.id,
+                       u.username,
+                       u.is_admin,
+                       u.is_approved,
+                       u.created_at,
+                       u.approved_at,
+                       a.username as approved_by_name
+                FROM users u
+                         LEFT JOIN users a ON u.approved_by = a.id
+                ORDER BY u.created_at DESC
+                """)
+    all_users = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template('admin_users.html',
+                           pending_users=pending_users,
+                           all_users=all_users)
+
+
+@app.route('/admin/approve_user/<int:user_id>')
+@login_required
+@admin_required
+def approve_user(user_id):
+    """Zatwierdź użytkownika"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+                    UPDATE users
+                    SET is_approved = TRUE,
+                        approved_at = NOW(),
+                        approved_by = %s
+                    WHERE id = %s
+                      AND is_approved = FALSE
+                    """, (session['user_id'], user_id))
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            flash('Użytkownik został zatwierdzony.', 'success')
+        else:
+            flash('Użytkownik nie znaleziony lub już zatwierdzony.', 'warning')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Błąd: {str(e)}', 'error')
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/reject_user/<int:user_id>')
+@login_required
+@admin_required
+def reject_user(user_id):
+    """Odrzuć użytkownika (usuń konto)"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Najpierw sprawdź czy to nie admin
+        cur.execute("SELECT is_admin FROM users WHERE id = %s", (user_id,))
+        user = cur.fetchone()
+
+        if user and user[0]:
+            flash('Nie można usunąć konta administratora.', 'error')
+            return redirect(url_for('admin_users'))
+
+        # Usuń użytkownika
+        cur.execute("DELETE FROM users WHERE id = %s AND is_approved = FALSE", (user_id,))
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            flash('Konto użytkownika zostało usunięte.', 'success')
+        else:
+            flash('Użytkownik nie znaleziony lub już zatwierdzony.', 'warning')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Błąd: {str(e)}', 'error')
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/make_admin/<int:user_id>')
+@login_required
+@admin_required
+def make_admin(user_id):
+    """Ustaw użytkownika jako administratora"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Sprawdź czy użytkownik istnieje i jest zatwierdzony
+        cur.execute("""
+                    UPDATE users
+                    SET is_admin = TRUE
+                    WHERE id = %s
+                      AND is_approved = TRUE
+                    """, (user_id,))
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            flash('Użytkownik został ustawiony jako administrator.', 'success')
+        else:
+            flash('Użytkownik nie znaleziony lub niezatwierdzony.', 'warning')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Błąd: {str(e)}', 'error')
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/remove_admin/<int:user_id>')
+@login_required
+@admin_required
+def remove_admin(user_id):
+    """Usuń uprawnienia administratora"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Nie można usunąć uprawnień samemu sobie
+        if user_id == session['user_id']:
+            flash('Nie możesz usunąć swoich własnych uprawnień administratora.', 'error')
+            return redirect(url_for('admin_users'))
+
+        cur.execute("""
+                    UPDATE users
+                    SET is_admin = FALSE
+                    WHERE id = %s
+                    """, (user_id,))
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            flash('Uprawnienia administratora zostały usunięte.', 'success')
+        else:
+            flash('Użytkownik nie znaleziony.', 'warning')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Błąd: {str(e)}', 'error')
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for('admin_users'))
+
 
 if __name__ == '__main__':
     app.run(debug=True)
