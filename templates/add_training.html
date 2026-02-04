@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Dodaj trening</h1>
+
+<form method="post">
+    <div class="form-group">
+        <label>Nazwa treningu</label>
+        <input type="text" name="title" required>
+    </div>
+
+    <div class="form-group">
+        <label>Data</label>
+        <input type="date" name="training_date" required>
+    </div>
+
+    <div class="form-group">
+        <label>Godzina</label>
+        <input type="time" name="training_time" required>
+    </div>
+
+    <div class="form-group">
+        <label>Trener</label>
+        <input type="text" name="coach">
+    </div>
+
+    <div class="form-group">
+        <label>Maks. liczba osób</label>
+        <input type="number" name="max_participants" value="20">
+    </div>
+
+    <button class="btn btn-success">
+        Dodaj trening
+    </button>
+</form>
+{% endblock %}

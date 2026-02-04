@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Moje treningi</h1>
+
+{% if trainings %}
+    {% for t in trainings %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h4>{{ t.title }}</h4>
+                <p>
+                    {{ t.training_date }}
+                    {{ t.training_time }}
+                </p>
+                <p>Trener: {{ t.coach }}</p>
+            </div>
+        </div>
+    {% endfor %}
+{% else %}
+    <p>Nie jesteś zapisany na żaden trening.</p>
+{% endif %}
+
+{% endblock %}

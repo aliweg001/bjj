@@ -382,6 +382,15 @@
                    {% if request.endpoint == 'techniques' %}class="active-link"{% endif %}>
                     Techniki
                 </a>
+                <a href="{{ url_for('trainings') }}"
+                 {% if request.endpoint == 'trainings' %}class="active-link"{% endif %}>
+                    Treningi
+                </a>
+                <a href="{{ url_for('my_trainings') }}"
+                   {% if request.endpoint == 'my_trainings' %}class="active-link"{% endif %}>
+                    Moje treningi
+                </a>
+
                 <a href="{{ url_for('add_technique') }}"
                    {% if request.endpoint == 'add_technique' %}class="active-link"{% endif %}>
                     Dodaj technikę
@@ -393,6 +402,14 @@
                 {% if session.get('pending_videos_count') %}
                     {% set pending_count = session.get('pending_videos_count') %}
                 {% endif %}
+
+                <a href="{{ url_for('add_training') }}"
+               class="admin-link"
+               {% if request.endpoint == 'add_training' %}style="background: #d97706;"{% endif %}>
+                ➕ Dodaj trening
+                </a>
+
+
 
                 <a href="{{ url_for('admin_videos') }}"
                    class="videos-pending-link notification-badge"

@@ -8,6 +8,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import re
+from flask import jsonify
+
 
 load_dotenv()
 app = Flask(__name__)
@@ -452,6 +454,273 @@ def techniques():
                            search_query=search_query,
                            selected_category=category,
                            selected_difficulty=difficulty)
+
+
+@app.route('/trainings')
+@login_required
+def trainings():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("""
+        SELECT t.*,
+               COUNT(r.id) as participants
+        FROM trainings t
+        LEFT JOIN training_registrations r
+               ON t.id = r.training_id
+        GROUP BY t.id
+        ORDER BY t.training_date, t.training_time
+    """)
+
+    trainings = cur.fetchall()
+
+    # 🔽 SPRAWDZENIE CZY UŻYTKOWNIK JEST ZAPISANY
+    user_id = session['user_id']
+
+    for t in trainings:
+        cur.execute("""
+            SELECT 1
+            FROM training_registrations
+            WHERE training_id = %s AND user_id = %s
+        """, (t['id'], user_id))
+
+        t['is_registered'] = cur.fetchone() is not None
+
+    cur.close()
+    conn.close()
+
+    return render_template("trainings.html", trainings=trainings)
+
+@app.route('/trainings/add', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def add_training():
+    if request.method == 'POST':
+        title = request.form.get('title')
+        training_date = request.form.get('training_date')
+        training_time = request.form.get('training_time')
+        coach = request.form.get('coach')
+        max_participants = request.form.get('max_participants')
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO trainings
+            (title, training_date, training_time, coach, max_participants)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (title, training_date, training_time, coach, max_participants))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        flash("Trening dodany!", "success")
+        return redirect(url_for('trainings'))
+
+    return render_template("add_training.html")
+
+
+
+@app.route('/my-trainings')
+@login_required
+def my_trainings():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    user_id = session['user_id']
+
+    cur.execute("""
+        SELECT t.*
+        FROM trainings t
+        JOIN training_registrations r
+            ON t.id = r.training_id
+        WHERE r.user_id = %s
+        ORDER BY t.training_date, t.training_time
+    """, (user_id,))
+
+    trainings = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template("my_trainings.html", trainings=trainings)
+
+
+@app.route('/trainings/delete/<int:training_id>')
+@login_required
+@admin_required
+def delete_training(training_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # usuń najpierw zapisy użytkowników
+    cur.execute(
+        "DELETE FROM training_registrations WHERE training_id = %s",
+        (training_id,)
+    )
+
+    # usuń trening
+    cur.execute(
+        "DELETE FROM trainings WHERE id = %s",
+        (training_id,)
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    flash("Trening usunięty.", "success")
+    return redirect(url_for('trainings'))
+
+
+
+@app.route('/api/trainings')
+@login_required
+def api_trainings():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("""
+        SELECT t.*,
+               COUNT(r.id) as participants
+        FROM trainings t
+        LEFT JOIN training_registrations r
+               ON t.id = r.training_id
+        GROUP BY t.id
+        ORDER BY t.training_date, t.training_time
+    """)
+
+    trainings = cur.fetchall()
+
+    # ✅ Konwersja daty i czasu na tekst
+    result = []
+    for t in trainings:
+        t = dict(t)
+        t["training_date"] = str(t["training_date"])
+        t["training_time"] = str(t["training_time"])
+        result.append(t)
+
+    cur.close()
+    conn.close()
+
+    return jsonify(result)
+
+@app.route('/api/trainings/register/<int:training_id>', methods=['POST'])
+@login_required
+def api_register_training(training_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    user_id = session['user_id']
+
+    try:
+        cur.execute("""
+            INSERT INTO training_registrations (training_id, user_id)
+            VALUES (%s, %s)
+        """, (training_id, user_id))
+
+        conn.commit()
+
+        response = {"status": "ok", "message": "Zapisano na trening"}
+
+    except Exception:
+        conn.rollback()
+        response = {"status": "error", "message": "Już zapisany"}
+
+    cur.close()
+    conn.close()
+
+    return jsonify(response)
+
+
+@app.route('/api/my-trainings')
+@login_required
+def api_my_trainings():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    user_id = session['user_id']
+
+    cur.execute("""
+        SELECT t.*,
+               COUNT(r2.id) as participants
+        FROM trainings t
+        JOIN training_registrations r
+             ON t.id = r.training_id
+        LEFT JOIN training_registrations r2
+             ON t.id = r2.training_id
+        WHERE r.user_id = %s
+        GROUP BY t.id
+        ORDER BY t.training_date, t.training_time
+    """, (user_id,))
+
+    trainings = cur.fetchall()
+
+    result = []
+    for t in trainings:
+        t = dict(t)
+        t["training_date"] = str(t["training_date"])
+        t["training_time"] = str(t["training_time"])
+        result.append(t)
+
+    cur.close()
+    conn.close()
+
+    return jsonify(result)
+
+
+
+@app.route('/trainings/register/<int:training_id>')
+@login_required
+def register_training(training_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    user_id = session['user_id']
+
+    try:
+        cur.execute("""
+            INSERT INTO training_registrations (training_id, user_id)
+            VALUES (%s, %s)
+        """, (training_id, user_id))
+
+        conn.commit()
+        flash("Zapisano na trening!", "success")
+
+    except Exception:
+        conn.rollback()
+        flash("Już jesteś zapisany lub brak miejsc.", "warning")
+
+    cur.close()
+    conn.close()
+
+    return redirect(url_for('trainings'))
+
+
+@app.route('/trainings/unregister/<int:training_id>')
+@login_required
+def unregister_training(training_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    user_id = session['user_id']
+
+    cur.execute("""
+        DELETE FROM training_registrations
+        WHERE training_id = %s AND user_id = %s
+    """, (training_id, user_id))
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    flash("Wypisano z treningu.", "info")
+    return redirect(url_for('trainings'))
+
+
+
 
 
 @app.route('/technique/add', methods=['GET', 'POST'])

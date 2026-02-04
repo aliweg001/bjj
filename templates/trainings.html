@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Treningi</h1>
+
+    {% if trainings %}
+        {% for t in trainings %}
+
+        <div class="card mb-3" style="border-radius:12px; overflow:hidden;">
+            <div class="card-body">
+
+                <h4 class="card-title" style="margin-bottom:10px;">
+                    🥋 {{ t.title }}
+                </h4>
+
+                <p style="margin:6px 0;">
+                    📅 <strong>Data:</strong>
+                    {{ t.training_date }} {{ t.training_time }}
+                </p>
+
+                <p style="margin:6px 0;">
+                    👤 <strong>Trener:</strong>
+                    {{ t.coach or "Nie podano" }}
+                </p>
+
+                <!-- Typ treningu -->
+                <p style="margin:10px 0;">
+                    🧍 <strong>Typ:</strong>
+                    <span class="badge"
+                          style="background:#10b981;color:white;padding:6px 12px;border-radius:20px;">
+                        Trening indywidualny
+                    </span>
+                </p>
+
+                <div style="margin-top:15px; display:flex; gap:10px; flex-wrap:wrap;">
+
+                    {% if t.is_registered %}
+                        <a href="{{ url_for('unregister_training', training_id=t.id) }}"
+                           class="btn btn-danger">
+                            ❌ Wypisz się
+                        </a>
+                    {% else %}
+                        <a href="{{ url_for('register_training', training_id=t.id) }}"
+                           class="btn btn-primary">
+                            ✅ Zapisz się
+                        </a>
+                    {% endif %}
+
+                    {% if session.get('is_admin') %}
+                        <a href="{{ url_for('delete_training', training_id=t.id) }}"
+                           class="btn btn-danger"
+                           onclick="return confirm('Usunąć trening?')">
+                            🗑 Usuń trening
+                        </a>
+                    {% endif %}
+
+                </div>
+
+            </div>
+        </div>
+
+        {% endfor %}
+    {% else %}
+        <p>Brak dostępnych treningów.</p>
+    {% endif %}
+</div>
+{% endblock %}
