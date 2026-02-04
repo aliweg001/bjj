@@ -1,0 +1,198 @@
+<!-- templates/admin_videos.html -->
+{% extends "base.html" %}
+
+{% block title %}Filmy do akceptacji - BJJ Admin{% endblock %}
+
+{% block content %}
+<div style="max-width: 1200px; margin: 0 auto;">
+    <h2>🔍 Zarządzanie filmami</h2>
+
+    <!-- Statystyki -->
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 30px 0;">
+        <div style="background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            <h3 style="color: #667eea; margin-top: 0;">📋 Oczekujące</h3>
+            <p style="font-size: 36px; font-weight: bold; margin: 10px 0;">{{ pending_videos|length }}</p>
+            <p style="color: #666;">filmy czekają na akceptację</p>
+        </div>
+
+        <div style="background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            <h3 style="color: #28a745; margin-top: 0;">✅ Ostatnio zaakceptowane</h3>
+            <p style="font-size: 36px; font-weight: bold; margin: 10px 0;">{{ approved_videos|length }}</p>
+            <p style="color: #666;">filmy zaakceptowane</p>
+        </div>
+
+        <div style="background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            <h3 style="color: #dc3545; margin-top: 0;">⚡ Szybkie akcje</h3>
+            <div style="margin-top: 15px;">
+                <a href="#pending" class="btn btn-primary" style="margin-right: 10px;">Przejdź do oczekujących</a>
+                <a href="#approved" class="btn btn-secondary">Zobacz zaakceptowane</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filmy oczekujące na akceptację -->
+    <div id="pending" style="margin: 50px 0;">
+        <h3 style="border-bottom: 2px solid #667eea; padding-bottom: 10px; margin-bottom: 20px;">
+            🕐 Filmy oczekujące na akceptację ({{ pending_videos|length }})
+        </h3>
+
+        {% if pending_videos %}
+        <div class="grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 25px;">
+            {% for video in pending_videos %}
+            <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <!-- Nagłówek filmu -->
+                <div style="background: #f8f9fa; padding: 15px; border-bottom: 1px solid #dee2e6;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 style="margin: 0; color: #333;">{{ video.technique_name or 'Technika bez nazwy' }}</h4>
+                        <span style="background: #ffc107; color: #333; padding: 3px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                            Oczekuje
+                        </span>
+                    </div>
+                    <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">
+                        Dodane przez: <strong>{{ video.uploaded_by_name or 'Nieznany' }}</strong>
+                        • {{ video.uploaded_at.strftime('%Y-%m-%d %H:%M') }}
+                    </p>
+                </div>
+
+                <!-- Informacje o filmie -->
+                <div style="padding: 20px;">
+                    <p style="margin: 0 0 10px 0;">
+                        <strong>Typ:</strong>
+                        {% if video.video_type == 'youtube' %}
+                            <span style="color: #ff0000;">🎥 YouTube</span>
+                        {% elif video.video_type == 'training' %}
+                            <span style="color: #007bff;">📁 Plik lokalny</span>
+                        {% else %}
+                            <span style="color: #6c757d;">🌐 Link zewnętrzny</span>
+                        {% endif %}
+                    </p>
+
+                    <p style="margin: 0 0 10px 0;">
+                        <strong>Nazwa pliku:</strong>
+                        <span style="color: #495057; word-break: break-all;">
+                            {{ video.original_filename or video.filename|truncate(40, True) }}
+                        </span>
+                    </p>
+
+                    <!-- YouTube thumbnail jeśli to YouTube -->
+                    {% if video.video_type == 'youtube' and video.filename %}
+                        {% set yt_id = extract_youtube_id(video.filename) %}
+                        {% if yt_id %}
+                        <div style="margin: 15px 0;">
+                            <img src="https://img.youtube.com/vi/{{ yt_id }}/mqdefault.jpg"
+                                 alt="Miniatura YouTube"
+                                 style="width: 100%; border-radius: 5px;">
+                        </div>
+                        {% endif %}
+                    {% endif %}
+
+                    <!-- Przyciski akcji -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px;">
+                        <a href="{{ url_for('approve_video', video_id=video.id) }}"
+                           class="btn btn-success"
+                           style="display: block; text-align: center; padding: 10px; background: #28a745; color: white; text-decoration: none; border-radius: 5px;">
+                            ✅ Zaakceptuj
+                        </a>
+                        <a href="{{ url_for('reject_video', video_id=video.id) }}"
+                           class="btn btn-danger"
+                           onclick="return confirm('Czy na pewno chcesz odrzucić ten film? Zostanie on usunięty.');"
+                           style="display: block; text-align: center; padding: 10px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px;">
+                            ❌ Odrzuć
+                        </a>
+                    </div>
+
+                    <!-- Link do techniki -->
+                    <div style="margin-top: 15px; text-align: center;">
+                        <a href="{{ url_for('technique_detail', technique_id=video.technique_id) }}"
+                           style="color: #667eea; text-decoration: none; font-size: 14px;">
+                            🔗 Przejdź do techniki
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 10px;">
+            <div style="font-size: 48px; margin-bottom: 20px;">🎉</div>
+            <p style="font-size: 18px; color: #6c757d;">Brak filmów oczekujących na akceptację!</p>
+            <p style="color: #999;">Wszystkie filmy zostały już przetworzone.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Ostatnio zaakceptowane filmy -->
+    <div id="approved" style="margin: 50px 0;">
+        <h3 style="border-bottom: 2px solid #28a745; padding-bottom: 10px; margin-bottom: 20px;">
+            ✅ Ostatnio zaakceptowane filmy ({{ approved_videos|length }})
+        </h3>
+
+        {% if approved_videos %}
+        <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead style="background: #f8f9fa;">
+                    <tr>
+                        <th style="padding: 15px; text-align: left; border-bottom: 2px solid #dee2e6;">Technika</th>
+                        <th style="padding: 15px; text-align: left; border-bottom: 2px solid #dee2e6;">Dodany przez</th>
+                        <th style="padding: 15px; text-align: left; border-bottom: 2px solid #dee2e6;">Typ</th>
+                        <th style="padding: 15px; text-align: left; border-bottom: 2px solid #dee2e6;">Data</th>
+                        <th style="padding: 15px; text-align: left; border-bottom: 2px solid #dee2e6;">Akcje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for video in approved_videos %}
+                    <tr style="border-bottom: 1px solid #f0f0f0;">
+                        <td style="padding: 15px;">
+                            <strong>{{ video.technique_name or 'Brak' }}</strong>
+                        </td>
+                        <td style="padding: 15px;">{{ video.uploaded_by_name }}</td>
+                        <td style="padding: 15px;">
+                            {% if video.video_type == 'youtube' %}
+                                <span style="color: #ff0000;">YouTube</span>
+                            {% elif video.video_type == 'training' %}
+                                <span style="color: #007bff;">Plik</span>
+                            {% else %}
+                                <span style="color: #6c757d;">Zewnętrzny</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 15px;">{{ video.uploaded_at.strftime('%Y-%m-%d') }}</td>
+                        <td style="padding: 15px;">
+                            <a href="{{ url_for('technique_detail', technique_id=video.technique_id) }}"
+                               class="btn btn-sm btn-primary"
+                               style="padding: 5px 10px; background: #667eea; color: white; text-decoration: none; border-radius: 3px; font-size: 12px;">
+                                Zobacz
+                            </a>
+                            <a href="{{ url_for('reject_video', video_id=video.id) }}"
+                               class="btn btn-sm btn-danger"
+                               onclick="return confirm('Czy na pewno chcesz usunąć ten film?');"
+                               style="padding: 5px 10px; background: #dc3545; color: white; text-decoration: none; border-radius: 3px; font-size: 12px; margin-left: 5px;">
+                                Usuń
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 10px;">
+            <p style="color: #6c757d;">Brak zaakceptowanych filmów do wyświetlenia.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .btn {
+        transition: all 0.3s;
+    }
+    .btn:hover {
+        opacity: 0.9;
+        transform: translateY(-2px);
+    }
+    .grid > div:hover {
+        transform: translateY(-5px);
+        transition: transform 0.3s;
+    }
+</style>
+{% endblock %}

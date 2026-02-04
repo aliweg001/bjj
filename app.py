@@ -3,14 +3,13 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from functools import wraps
+from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
-from dotenv import load_dotenv
 import re
 
 load_dotenv()
-
 app = Flask(__name__)
 app.secret_key = 'bjj_klucz_ostateczny'
 
@@ -143,10 +142,18 @@ def dashboard():
         total_techniques = cur.fetchone()['count']
 
         total_videos = 0
+        pending_videos_count = 0  # NOWE
         recent_videos = []
         try:
             cur.execute("SELECT COUNT(*) as count FROM videos")
             total_videos = cur.fetchone()['count']
+
+            # Pobierz liczbę filmów oczekujących na akceptację
+            cur.execute("SELECT COUNT(*) as count FROM videos WHERE is_approved = FALSE")
+            pending_videos_count = cur.fetchone()['count']
+
+            # Zapisz w sesji dla badge w menu
+            session['pending_videos_count'] = pending_videos_count
 
             # Pobierz 3 ostatnio dodane filmy
             cur.execute("""
@@ -156,6 +163,7 @@ def dashboard():
                         FROM videos v
                                  LEFT JOIN techniques t ON v.technique_id = t.id
                                  LEFT JOIN users u ON v.uploaded_by = u.id
+                        WHERE v.is_approved = TRUE
                         ORDER BY v.uploaded_at DESC LIMIT 3
                         """)
             recent_videos = cur.fetchall()
@@ -202,6 +210,7 @@ def dashboard():
                                total_techniques=total_techniques,
                                total_videos=total_videos,
                                total_categories=total_categories,
+                               pending_videos_count=pending_videos_count,  # NOWE
                                categories=categories,
                                recent_techniques=recent_techniques,
                                recent_videos=recent_videos)
@@ -212,11 +221,10 @@ def dashboard():
                                total_techniques=0,
                                total_videos=0,
                                total_categories=0,
+                               pending_videos_count=0,
                                categories=[],
                                recent_techniques=[],
                                recent_videos=[])
-
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -306,22 +314,48 @@ def logout():
 @login_required
 def techniques():
     # Pobierz parametry z URL
-    search_query = request.args.get('search', '')
-    category_id = request.args.get('category', type=int)
-    difficulty = request.args.get('difficulty', '')
+    search_query = request.args.get('search', '').strip()
+    category = request.args.get('category', '').strip()
+    difficulty = request.args.get('difficulty', '').strip()
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # Buduj zapytanie dynamicznie
-    query = """
-            SELECT t.*,
-                   c.name                                                      as category_name,
-                   (SELECT COUNT(*) FROM videos v WHERE v.technique_id = t.id) as video_count
-            FROM techniques t
-                     LEFT JOIN categories c ON t.category_id = c.id
-            WHERE 1 = 1 \
-            """
+    # Dla zwykłych użytkowników: pokazuj tylko techniki z co najmniej jednym zaakceptowanym filmem
+    # Dla adminów: pokazuj wszystkie techniki
+    if not session.get('is_admin'):
+        # Zwykli użytkownicy - tylko techniki z zaakceptowanymi filmami
+        query = """
+                SELECT t.*,
+                       c.name                                                                                 as category_name,
+                       (SELECT COUNT(*) \
+                        FROM videos v \
+                        WHERE v.technique_id = t.id \
+                          AND v.is_approved = TRUE)                                                           as video_count,
+                       EXISTS(SELECT 1 \
+                              FROM videos v2 \
+                              WHERE v2.technique_id = t.id \
+                                AND v2.is_approved = TRUE)                                                    as has_approved_videos
+                FROM techniques t
+                         LEFT JOIN categories c ON t.category_id = c.id
+                WHERE EXISTS(SELECT 1 FROM videos v WHERE v.technique_id = t.id AND v.is_approved = TRUE)
+                """
+    else:
+        # Admini - wszystkie techniki
+        query = """
+                SELECT t.*,
+                       c.name                                                                               as category_name,
+                       (SELECT COUNT(*) \
+                        FROM videos v \
+                        WHERE v.technique_id = t.id \
+                          AND v.is_approved = TRUE)                                                         as video_count,
+                       TRUE                                                                                 as has_approved_videos
+                FROM techniques t
+                         LEFT JOIN categories c ON t.category_id = c.id
+                WHERE 1 = 1
+                """
+
     params = []
 
     # Filtry
@@ -330,44 +364,80 @@ def techniques():
         search_pattern = f"%{search_query}%"
         params.extend([search_pattern, search_pattern])
 
-    if category_id:
+    if category:
         query += " AND t.category_id = %s"
-        params.append(category_id)
+        params.append(int(category))
 
     if difficulty:
         query += " AND t.difficulty = %s"
         params.append(difficulty)
 
-    query += " ORDER BY t.id DESC"
+    query += " ORDER BY t.created_at DESC, t.id DESC"
 
     cur.execute(query, params)
     techniques_list = cur.fetchall()
 
-    # Pobierz miniatury filmów dla każdej techniki
+    # Pobierz miniatury filmów i username dla każdej techniki
     for technique in techniques_list:
-        # Pobierz pierwszy film (jeśli istnieje) dla miniatury
-        cur.execute("""
-                    SELECT v.*
-                    FROM videos v
-                    WHERE v.technique_id = %s
-                    ORDER BY v.uploaded_at DESC LIMIT 1
-                    """, (technique['id'],))
+        # Dla zwykłych użytkowników: tylko zaakceptowane filmy
+        # Dla adminów: wszystkie filmy
+        if not session.get('is_admin'):
+            cur.execute("""
+                        SELECT v.*, u.username
+                        FROM videos v
+                                 LEFT JOIN users u ON v.uploaded_by = u.id
+                        WHERE v.technique_id = %s
+                          AND v.is_approved = TRUE
+                        ORDER BY CASE
+                                     WHEN v.video_type = 'training' THEN 1
+                                     WHEN v.video_type = 'youtube' THEN 2
+                                     ELSE 3
+                                     END,
+                                 v.uploaded_at DESC LIMIT 1
+                        """, (technique['id'],))
+        else:
+            cur.execute("""
+                        SELECT v.*, u.username
+                        FROM videos v
+                                 LEFT JOIN users u ON v.uploaded_by = u.id
+                        WHERE v.technique_id = %s
+                        ORDER BY CASE
+                                     WHEN v.video_type = 'training' THEN 1
+                                     WHEN v.video_type = 'youtube' THEN 2
+                                     ELSE 3
+                                     END,
+                                 v.uploaded_at DESC LIMIT 1
+                        """, (technique['id'],))
 
-        video = cur.fetchone()
-        if video:
-            technique['thumbnail_video'] = video
+        result = cur.fetchone()
+        if result:
+            video_data = {k: v for k, v in result.items() if k != 'username'}
+            technique['thumbnail_video'] = video_data
+            technique['username'] = result['username']
 
-            # Określ typ miniatury
-            if video['video_type'] == 'youtube' and (
-                    'youtube.com' in video['filename'] or 'youtu.be' in video['filename']):
-                yt_match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})',
-                                     video['filename'])
+            if video_data['video_type'] == 'youtube':
+                yt_match = None
+                if video_data['filename']:
+                    patterns = [
+                        r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([\w-]{11})',
+                        r'v=([\w-]{11})'
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, video_data['filename'])
+                        if match:
+                            yt_match = match
+                            break
+
                 if yt_match:
                     technique['thumbnail_yt_id'] = yt_match.group(1)
                 else:
                     technique['thumbnail_yt_id'] = None
             else:
                 technique['thumbnail_yt_id'] = None
+        else:
+            technique['thumbnail_video'] = None
+            technique['username'] = None
+            technique['thumbnail_yt_id'] = None
 
     # Pobierz wszystkie kategorie dla filtrowania
     cur.execute("SELECT * FROM categories ORDER BY name")
@@ -380,7 +450,7 @@ def techniques():
                            techniques=techniques_list,
                            categories=categories,
                            search_query=search_query,
-                           selected_category=category_id,
+                           selected_category=category,
                            selected_difficulty=difficulty)
 
 
@@ -391,12 +461,13 @@ def add_technique():
         name = request.form.get('name')
         category_id = request.form.get('category_id')
         description = request.form.get('description')
-        difficulty = request.form.get('difficulty', 'intermediate')
+        difficulty = request.form.get('difficulty', 'Sredniozaawansowany')  # POPRAWIONE
         position = request.form.get('position', '')
         video_url = request.form.get('video_url', '').strip()
 
         # Pobierz aktualnego użytkownika
         current_user_id = session.get('user_id')
+        is_admin_user = session.get('is_admin', False)
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -425,50 +496,54 @@ def add_technique():
                     original_filename = video_file.filename
                     video_filename = f"video_{technique_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}"
 
-                    # ZMIANA: Użyj właściwej ścieżki
-                    # Opcja 1: Ścieżka względna (względem głównego katalogu projektu)
+                    # Ścieżka zapisu
                     upload_folder = 'static/uploads'
-
-                    # Opcja 2: Ścieżka bezwzględna (jeśli potrzebujesz)
-                    # upload_folder = r'C:\Users\u_weg\PycharmProjects\bjj\static\uploads'
-
-                    # Upewnij się, że folder istnieje
                     os.makedirs(upload_folder, exist_ok=True)
-
-                    # Pełna ścieżka do zapisu
                     file_path = os.path.join(upload_folder, video_filename)
 
-                    # Zapis pliku - to już kopiuje plik z formularza do wskazanej lokalizacji
+                    # Zapis pliku
                     video_file.save(file_path)
 
-                    print(f"Plik zapisany w: {file_path}")  # Dla debugowania
+                    # DODANO: Status akceptacji (admin = auto-zaakceptowany)
+                    is_approved = is_admin_user
 
                     # Dodaj rekord do tabeli videos
                     cur.execute("""
                                 INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
-                                                    uploaded_at)
-                                VALUES (%s, %s, %s, %s, %s, NOW())
-                                """, (technique_id, video_filename, original_filename, 'training', current_user_id))
+                                                    is_approved)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                                """, (technique_id, video_filename, original_filename, 'training', current_user_id,
+                                      is_approved))
 
             # 3. Obsługa linku YouTube (jeśli nie ma pliku)
             elif video_url and not video_file:
+                # DODANO: Status akceptacji
+                is_approved = is_admin_user
+
                 # Jeśli to link YouTube
                 if 'youtube.com' in video_url or 'youtu.be' in video_url:
                     cur.execute("""
                                 INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
-                                                    uploaded_at)
-                                VALUES (%s, %s, %s, %s, %s, NOW())
-                                """, (technique_id, video_url, video_url, 'youtube', current_user_id))
+                                                    is_approved)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                                """, (technique_id, video_url, video_url, 'youtube', current_user_id, is_approved))
                 else:
                     # Dla innych linków
                     cur.execute("""
                                 INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
-                                                    uploaded_at)
-                                VALUES (%s, %s, %s, %s, %s, NOW())
-                                """, (technique_id, video_url, video_url, 'external', current_user_id))
+                                                    is_approved)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                                """, (technique_id, video_url, video_url, 'external', current_user_id, is_approved))
 
             conn.commit()
-            flash('Technika została dodana!', 'success')
+
+            if is_admin_user:
+                flash('Technika została dodana! Film jest już dostępny.', 'success')
+            else:
+                if video_file or video_url:
+                    flash('Technika została dodana! Film oczekuje na akceptację przez administratora.', 'info')
+                else:
+                    flash('Technika została dodana!', 'success')
 
         except Exception as e:
             conn.rollback()
@@ -491,6 +566,131 @@ def add_technique():
 
     return render_template('add_technique.html', categories=categories)
 
+# --- DODAJ TE ENDPOINTY DO PANELU ADMINA ---
+
+@app.route('/admin/videos')
+@login_required
+@admin_required
+def admin_videos():
+    """Lista filmów oczekujących na akceptację"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Pobierz filmy oczekujące na akceptację
+    cur.execute("""
+                SELECT v.*,
+                       t.name as technique_name,
+                       u.username as uploaded_by_name
+                FROM videos v
+                         LEFT JOIN techniques t ON v.technique_id = t.id
+                         LEFT JOIN users u ON v.uploaded_by = u.id
+                WHERE v.is_approved = FALSE
+                ORDER BY v.uploaded_at DESC
+                """)
+    pending_videos = cur.fetchall()
+
+    # Pobierz ostatnio zaakceptowane filmy
+    cur.execute("""
+                SELECT v.*,
+                       t.name as technique_name,
+                       u.username as uploaded_by_name
+                FROM videos v
+                         LEFT JOIN techniques t ON v.technique_id = t.id
+                         LEFT JOIN users u ON v.uploaded_by = u.id
+                WHERE v.is_approved = TRUE
+                ORDER BY v.uploaded_at DESC
+                LIMIT 20
+                """)
+    approved_videos = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template('admin_videos.html',
+                           pending_videos=pending_videos,
+                           approved_videos=approved_videos)
+
+
+@app.route('/admin/approve_video/<int:video_id>')
+@login_required
+@admin_required
+def approve_video(video_id):
+    """Zaakceptuj film"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+                    UPDATE videos
+                    SET is_approved = TRUE,
+                        approved_at = NOW()
+                    WHERE id = %s
+                    """, (video_id,))
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            flash('Film został zaakceptowany.', 'success')
+        else:
+            flash('Film nie został znaleziony.', 'warning')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Błąd: {str(e)}', 'error')
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for('admin_videos'))
+
+
+@app.route('/admin/reject_video/<int:video_id>')
+@login_required
+@admin_required
+def reject_video(video_id):
+    """Odrzuć i usuń film"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        # Najpierw pobierz informacje o filmie aby usunąć plik
+        cur.execute("""
+                    SELECT filename, video_type
+                    FROM videos
+                    WHERE id = %s
+                    """, (video_id,))
+
+        video = cur.fetchone()
+
+        # Usuń rekord z bazy
+        cur.execute("DELETE FROM videos WHERE id = %s", (video_id,))
+
+        # Jeśli to plik lokalny, usuń go też z dysku
+        if video and video['video_type'] != 'youtube' and video['filename']:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], video['filename'])
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"DEBUG: Usunięto plik {file_path}")
+
+        conn.commit()
+
+        if cur.rowcount > 0:
+            flash('Film został odrzucony i usunięty.', 'success')
+        else:
+            flash('Film nie został znaleziony.', 'warning')
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Błąd: {str(e)}', 'error')
+    finally:
+        cur.close()
+        conn.close()
+
+    return redirect(url_for('admin_videos'))
+
+
+
+# ... istniejący kod ...
 
 @app.route('/technique/<int:technique_id>')
 @login_required
@@ -517,22 +717,33 @@ def technique_detail(technique_id):
         conn.close()
         return redirect(url_for('techniques'))
 
-    # 2. Sprawdź filmy - DOŁĄCZ DANE UŻYTKOWNIKA
-    cur.execute('''
-                SELECT v.*,
-                       u.username as uploaded_by_username -- To jest kluczowe!
-                FROM videos v
-                         LEFT JOIN users u ON v.uploaded_by = u.id -- JOIN z tabelą users
-                WHERE v.technique_id = %s
-                ORDER BY v.uploaded_at DESC
-                ''', (technique_id,))
+    # 2. Sprawdź filmy - TYLKO ZAAKCEPTOWANE
+    # Pokaż wszystkie filmy adminowi, tylko zaakceptowane zwykłym użytkownikom
+    if session.get('is_admin'):
+        cur.execute('''
+                    SELECT v.*,
+                           u.username as uploaded_by_username
+                    FROM videos v
+                             LEFT JOIN users u ON v.uploaded_by = u.id
+                    WHERE v.technique_id = %s
+                    ORDER BY v.is_approved DESC, v.uploaded_at DESC
+                    ''', (technique_id,))
+    else:
+        cur.execute('''
+                    SELECT v.*,
+                           u.username as uploaded_by_username
+                    FROM videos v
+                             LEFT JOIN users u ON v.uploaded_by = u.id
+                    WHERE v.technique_id = %s AND v.is_approved = TRUE
+                    ORDER BY v.uploaded_at DESC
+                    ''', (technique_id,))
 
     videos = cur.fetchall()
     print(f"2. Liczba filmów w bazie: {len(videos)}")
 
     # Debug: sprawdź czy mamy username
     for i, video in enumerate(videos):
-        print(f"   Film #{i + 1}: uploaded_by={video.get('uploaded_by')}, username={video.get('uploaded_by_username')}")
+        print(f"   Film #{i + 1}: uploaded_by={video.get('uploaded_by')}, username={video.get('uploaded_by_username')}, approved={video.get('is_approved')}")
 
     # 3. Sprawdź każdy film szczegółowo
     import os
@@ -542,7 +753,7 @@ def technique_detail(technique_id):
         print(f"\n   Film #{i + 1}:")
         print(f"   - ID: {video['id']}")
         print(f"   - Filename: {video['filename']}")
-        print(f"   - Original: {video['original_filename']}")
+        print(f"   - Approved: {video['is_approved']}")
         print(f"   - uploaded_by (ID): {video['uploaded_by']}")
         print(f"   - uploaded_by_username: {video.get('uploaded_by_username', 'BRAK')}")
 
@@ -574,7 +785,6 @@ def technique_detail(technique_id):
             video['uploaded_at_formatted'] = 'Brak daty'
 
         # Ustaw username dla łatwiejszego dostępu w szablonie
-        # Używamy 'username' zamiast 'uploaded_by_username' dla zgodności z szablonem
         if 'uploaded_by_username' in video:
             video['username'] = video['uploaded_by_username']
         else:
@@ -589,11 +799,13 @@ def technique_detail(technique_id):
     print(f"\n=== DEBUG: Przekazuję do szablonu ===")
     print(f"Technika: {technique['name']}")
     for i, video in enumerate(videos):
-        print(f"Film {i + 1}: username={video.get('username')}")
+        print(f"Film {i + 1}: username={video.get('username')}, approved={video.get('is_approved')}")
 
     return render_template('technique_detail.html',
                            technique=technique,
                            videos=videos)
+
+
 @app.route('/technique/<int:technique_id>/upload-video', methods=['POST'])
 @login_required
 def upload_video(technique_id):
@@ -656,17 +868,25 @@ def upload_video(technique_id):
 
             user_id = session.get('user_id', 1)
 
+            # USTAW STATUS ZAAKCEPTOWANIA
+            # Admin - automatycznie zaakceptowane
+            # Zwykły użytkownik - wymaga akceptacji
+            is_admin_user = session.get('is_admin', False)
+            is_approved = is_admin_user  # True dla admina, False dla zwykłych użytkowników
+
             print(f"DEBUG: Wstawiam do bazy:")
             print(f"  technique_id: {technique_id}")
             print(f"  filename: {filename}")
             print(f"  original_filename: {file.filename}")
             print(f"  video_type: {video_type}")
             print(f"  uploaded_by: {user_id}")
+            print(f"  is_approved: {is_approved} (admin: {is_admin_user})")
 
             cur.execute('''
-                        INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by)
-                        VALUES (%s, %s, %s, %s, %s) RETURNING id
-                        ''', (technique_id, filename, file.filename, video_type, user_id))
+                        INSERT INTO videos (technique_id, filename, original_filename, video_type, uploaded_by,
+                                            is_approved)
+                        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+                        ''', (technique_id, filename, file.filename, video_type, user_id, is_approved))
 
             new_id = cur.fetchone()[0]
             print(f"DEBUG: Wstawiono rekord z ID: {new_id}")
@@ -681,7 +901,11 @@ def upload_video(technique_id):
             cur.close()
             conn.close()
 
-            flash('Film został przesłany pomyślnie!', 'success')
+            if is_approved:
+                flash('Film został przesłany pomyślnie i jest już dostępny!', 'success')
+            else:
+                flash('Film został przesłany pomyślnie! Oczekuje na akceptację przez administratora.', 'info')
+
             print(f"=== DEBUG UPLOAD: Sukces ===")
 
         except Exception as e:
@@ -700,8 +924,6 @@ def upload_video(technique_id):
         flash('Niedozwolony typ pliku. Dozwolone: mp4, avi, mov, mkv, webm', 'error')
 
     return redirect(url_for('technique_detail', technique_id=technique_id))
-
-
 # --- PANEL ADMINISTRATORA ---
 
 @app.route('/admin/users')

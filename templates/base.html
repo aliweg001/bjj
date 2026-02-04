@@ -59,7 +59,7 @@
             color: white;
         }
 
-        /* Styl dla linku admina */
+        /* Styl dla linku admina - POPRAWIONY KOLOR */
         .admin-link {
             background: #f59e0b;
             color: white !important;
@@ -68,6 +68,17 @@
 
         .admin-link:hover {
             background: #d97706;
+        }
+
+        /* Styl dla linku filmów do akceptacji - NOWY */
+        .videos-pending-link {
+            background: #ef4444;
+            color: white !important;
+            font-weight: 600;
+        }
+
+        .videos-pending-link:hover {
+            background: #dc2626;
         }
 
         .content {
@@ -333,6 +344,27 @@
             font-weight: 600;
             color: #667eea;
         }
+
+        /* Notifications badge - NOWY */
+        .notification-badge {
+            position: relative;
+        }
+
+        .notification-count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ef4444;
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -356,10 +388,26 @@
                 </a>
 
                 {% if session.get('is_admin') %}
+                <!-- Link do filmów do akceptacji - NOWY -->
+                {% set pending_count = 0 %}
+                {% if session.get('pending_videos_count') %}
+                    {% set pending_count = session.get('pending_videos_count') %}
+                {% endif %}
+
+                <a href="{{ url_for('admin_videos') }}"
+                   class="videos-pending-link notification-badge"
+                   {% if request.endpoint == 'admin_videos' %}style="background: #dc2626;"{% endif %}>
+                    🔍 Filmy do akceptacji
+                    {% if pending_count > 0 %}
+                    <span class="notification-count">{{ pending_count }}</span>
+                    {% endif %}
+                </a>
+
+                <!-- Link do panelu admina (użytkownicy) -->
                 <a href="{{ url_for('admin_users') }}"
                    class="admin-link"
                    {% if request.endpoint == 'admin_users' %}style="background: #d97706;"{% endif %}>
-                    👑 Panel admina
+                    👑 Użytkownicy
                 </a>
                 {% endif %}
 

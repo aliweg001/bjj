@@ -11,12 +11,17 @@
     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px;">
         <div>
             <h2 style="color: #667eea; margin-bottom: 10px;">{{ technique.name }}</h2>
-            <!-- USUNIĘTY BADGE Z TUTAJ -->
         </div>
+        <span class="badge
+            {% if technique.difficulty == 'Początkujący' %}badge-easy
+            {% elif technique.difficulty == 'Sredniozaawansowany' %}badge-medium
+            {% elif technique.difficulty == 'Zaawansowany' %}badge-hard
+            {% else %}badge-medium{% endif %}">
+            {{ technique.difficulty or 'Średniozaawansowany' }}
+        </span>
     </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; padding: 15px; background: #f7fafc; border-radius: 8px;">
-        <!-- ZMIANA: dodaliśmy trzecią kolumnę dla poziomu trudności -->
         <div>
             <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Kategoria:</p>
             <p style="font-weight: 600;">{{ technique.category_name or 'Brak kategorii' }}</p>
@@ -26,72 +31,182 @@
             <p style="font-weight: 600;">{{ technique.position or 'Nie określono' }}</p>
         </div>
         <div>
-            <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Poziom trudności:</p>
-            <p style="font-weight: 600; text-transform: capitalize;">
-                {{ technique.difficulty or 'Nie określono' }}
-            </p>
+            <p style="font-size: 14px; color: #666; margin-bottom: 5px;">Utworzono:</p>
+            <p style="font-weight: 600;">{{ technique.created_at_formatted or 'Nie określono' }}</p>
         </div>
     </div>
-
-    <!-- Opis techniki przeniesiony na dół -->
 </div>
 
 <div class="card" style="margin-top: 30px;">
-    <h3 style="margin-bottom: 20px;">Filmy treningowe ({{ videos|length }})</h3>
+    <h3 style="margin-bottom: 20px;">
+        Filmy treningowe
+        <span style="font-size: 14px; color: #666;">
+            {% set approved_videos = videos|selectattr('is_approved', 'equalto', true)|list %}
+            {% set user_pending_videos = videos|selectattr('is_approved', 'equalto', false)|selectattr('uploaded_by', 'equalto', session.get('user_id'))|list %}
+            {% set other_pending_videos = videos|selectattr('is_approved', 'equalto', false)|rejectattr('uploaded_by', 'equalto', session.get('user_id'))|list %}
+
+            ({{ approved_videos|length }} dostępnych)
+
+            {% if session.get('is_admin') %}
+                {% if other_pending_videos|length > 0 %}
+                | <span style="color: #e53e3e;">{{ other_pending_videos|length }} oczekuje na akceptację</span>
+                {% endif %}
+            {% endif %}
+
+            {% if user_pending_videos|length > 0 %}
+            | <span style="color: #f59e0b;">Masz {{ user_pending_videos|length }} film(ów) w oczekiwaniu</span>
+            {% endif %}
+        </span>
+    </h3>
 
     {% if videos %}
         {% for video in videos %}
-        <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <div>
-                    <h4 style="margin-bottom: 5px;">
-                        {% if video.video_type == 'youtube' %}
-                            YouTube: {{ technique.name }}
-                        {% else %}
-                            {{ technique.name }} - Nagranie
-                        {% endif %}
-                    </h4>
-                    <p style="font-size: 12px; color: #999;">
-                        Typ: <strong>{{ video.video_type }}</strong> |
-                        Przesłane przez: <strong>{{ video.username }}</strong> |
-                        Data: <strong>{{ video.uploaded_at.strftime('%Y-%m-%d') if video.uploaded_at else 'Brak daty' }}</strong>
-                    </p>
-                </div>
-            </div>
+            <!-- POKAŻ FILM JEŚLI:
+                 1. Jest zaakceptowany LUB
+                 2. Jestem adminem LUB
+                 3. To mój film (uploaded_by == moje user_id)
+            -->
+            {% if video.is_approved or session.get('is_admin') or video.uploaded_by == session.get('user_id') %}
+            <div style="background: white;
+                        border: 2px solid {% if not video.is_approved %}#ffc107{% else %}#e2e8f0{% endif %};
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin-bottom: 20px;
+                        {% if not video.is_approved %}border-left: 5px solid #ffc107;{% endif %}">
 
-            <div style="max-width: 800px; margin: 0 auto;">
-                {% if video.video_type == 'youtube' %}
-                    {# Dla YouTube: wyodrębnij ID z URL i użyj embed #}
-                    {% set youtube_id = video.filename|youtube_id %}
-                    {% if youtube_id %}
-                        <div style="position: relative; width: 100%; padding-bottom: 56.25%; border-radius: 8px; overflow: hidden; background: #000;">
-                            <iframe 
-                                src="https://www.youtube.com/embed/{{ youtube_id }}"
-                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                allowfullscreen
-                                title="YouTube video player">
-                            </iframe>
+                <!-- BADGE DLA NIEZAAKCEPTOWANYCH FILMÓW -->
+                {% if not video.is_approved %}
+                <div style="background: #fff3cd; color: #856404; padding: 10px 15px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #ffeaa7;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>⚠️ Ten film oczekuje na akceptację.</strong>
+                            <span style="font-size: 14px;">
+                                {% if session.get('is_admin') %}
+                                    Widoczny tylko dla administratorów.
+                                {% elif video.uploaded_by == session.get('user_id') %}
+                                    <em>To Twój film - oczekuje na weryfikację przez administratora.</em>
+                                {% endif %}
                         </div>
-                    {% else %}
-                        <p style="color: #e53e3e; padding: 10px; background: #fed7d7; border-radius: 6px;">
-                            Nieprawidłowy link YouTube: {{ video.filename }}
-                        </p>
-                    {% endif %}
-                {% else %}
-                    {# Dla lokalnych filmów #}
-                    <div style="border-radius: 8px; overflow: hidden; background: #000;">
-                        <video controls style="width: 100%; display: block;">
-                            <source src="{{ url_for('static', filename='uploads/' + video.filename) }}" type="video/mp4">
-                            Twoja przeglądarka nie obsługuje odtwarzania wideo.
-                        </video>
+                        {% if session.get('is_admin') %}
+                        <div>
+                            <a href="{{ url_for('approve_video', video_id=video.id) }}"
+                               class="btn btn-success"
+                               style="padding: 5px 15px; font-size: 14px; margin-right: 10px;">
+                                ✅ Zaakceptuj
+                            </a>
+                            <a href="{{ url_for('reject_video', video_id=video.id) }}"
+                               class="btn btn-danger"
+                               onclick="return confirm('Czy na pewno chcesz odrzucić ten film? Zostanie on trwale usunięty.');"
+                               style="padding: 5px 15px; font-size: 14px;">
+                                ❌ Odrzuć
+                            </a>
+                        </div>
+                        {% endif %}
                     </div>
+                    {% if video.uploaded_by == session.get('user_id') and not session.get('is_admin') %}
+                    <div style="margin-top: 10px; font-size: 14px; color: #92400e;">
+                        <em>Twój film będzie widoczny dla innych użytkowników po zaakceptowaniu przez administratora.</em>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div>
+                        <h4 style="margin-bottom: 5px;">
+                            {% if video.video_type == 'youtube' %}
+                                <span style="color: #ff0000;">▶️</span> YouTube: {{ technique.name }}
+                            {% elif video.video_type == 'training' %}
+                                🎬 {{ technique.name }} - Nagranie treningowe
+                            {% elif video.video_type == 'tutorial' %}
+                                📚 {{ technique.name }} - Tutorial
+                            {% elif video.video_type == 'seminar' %}
+                                🎓 {{ technique.name }} - Seminarium
+                            {% elif video.video_type == 'competition' %}
+                                🏆 {{ technique.name }} - Zawody
+                            {% else %}
+                                📹 {{ technique.name }}
+                            {% endif %}
+                        </h4>
+                        <p style="font-size: 12px; color: #999;">
+                            Typ: <strong>{{ video.video_type }}</strong> |
+                            Przesłane przez: <strong>{{ video.username }}</strong> |
+                            Data: <strong>{{ video.uploaded_at_formatted }}</strong>
+                            {% if video.is_approved %}
+                                | <span style="color: #10b981;">✅ Zaakceptowany</span>
+                            {% elif session.get('is_admin') or video.uploaded_by == session.get('user_id') %}
+                                | <span style="color: #f59e0b;">🕐 Oczekuje na akceptację</span>
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    <!-- Przycisk usuwania dla admina lub właściciela filmu -->
+                    {% if session.get('is_admin') or video.uploaded_by == session.get('user_id') %}
+                    <a href="{{ url_for('reject_video', video_id=video.id) }}"
+                       class="btn btn-danger"
+                       onclick="return confirm('Czy na pewno chcesz usunąć ten film? Zostanie on trwale usunięty.');"
+                       style="padding: 5px 15px; font-size: 14px;">
+                        🗑️ Usuń
+                    </a>
+                    {% endif %}
+                </div>
+
+                <!-- ODTWARZANIE FILMU - tylko dla zaakceptowanych LUB właściciela/admina -->
+                {% if video.is_approved or session.get('is_admin') or video.uploaded_by == session.get('user_id') %}
+                <div style="max-width: 800px; margin: 0 auto;">
+                    {% if video.video_type == 'youtube' %}
+                        {% set youtube_id = video.filename|youtube_id %}
+                        {% if youtube_id %}
+                            <div style="position: relative; width: 100%; padding-bottom: 56.25%; border-radius: 8px; overflow: hidden; background: #000;">
+                                <iframe
+                                    src="https://www.youtube.com/embed/{{ youtube_id }}"
+                                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowfullscreen
+                                    title="YouTube video player">
+                                </iframe>
+                            </div>
+                        {% else %}
+                            <p style="color: #e53e3e; padding: 10px; background: #fed7d7; border-radius: 6px;">
+                                Nieprawidłowy link YouTube: {{ video.filename }}
+                            </p>
+                        {% endif %}
+                    {% else %}
+                        <!-- Dla lokalnych filmów -->
+                        {% set video_url = url_for('static', filename='uploads/' + video.filename) %}
+                        {% set file_exists = video.filename and video.video_type != 'youtube' %}
+
+                        {% if file_exists %}
+                            <div style="border-radius: 8px; overflow: hidden; background: #000; position: relative;">
+                                <video controls style="width: 100%; display: block; max-height: 500px;">
+                                    <source src="{{ video_url }}" type="video/mp4">
+                                    Twoja przeglądarka nie obsługuje odtwarzania wideo.
+                                </video>
+                                {% if not video.is_approved %}
+                                <div style="position: absolute; top: 10px; right: 10px; background: rgba(255, 193, 7, 0.9); color: #856404; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold;">
+                                    🕐 OCZEKUJE
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                                <strong>Plik:</strong> {{ video.original_filename or video.filename }}
+                                {% if video.video_type == 'training' %}
+                                    | 🎬 Nagranie treningowe
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <p style="color: #e53e3e; padding: 10px; background: #fed7d7; border-radius: 6px;">
+                                ❌ Plik wideo nie istnieje: {{ video.filename }}
+                            </p>
+                        {% endif %}
+                    {% endif %}
+                </div>
                 {% endif %}
             </div>
-        </div>
+            {% endif %}
         {% endfor %}
 
-        <!-- OPIS TECHNIKI PRZENIESIONY TUTAJ, POD FILMAMI -->
+        <!-- OPIS TECHNIKI -->
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
             <h3 style="margin-bottom: 15px;">Opis techniki</h3>
             <p style="color: #666; line-height: 1.6; white-space: pre-wrap; background: #f7fafc; padding: 20px; border-radius: 8px;">
@@ -113,4 +228,81 @@
         </div>
     {% endif %}
 </div>
+
+<style>
+    .badge {
+        display: inline-block;
+        padding: 6px 15px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .badge-easy {
+        background: #c6f6d5;
+        color: #22543d;
+    }
+
+    .badge-medium {
+        background: #fef5e7;
+        color: #7c4a03;
+    }
+
+    .badge-hard {
+        background: #fed7d7;
+        color: #742a2a;
+    }
+
+    .btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.3s;
+    }
+
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #5568d3;
+    }
+
+    .btn-success {
+        background: #10b981;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #059669;
+    }
+
+    .btn-danger {
+        background: #ef4444;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #dc2626;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const deleteButtons = document.querySelectorAll('a.btn-danger');
+        deleteButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                if (!confirm('Czy na pewno chcesz usunąć ten film? Zostanie on trwale usunięty.')) {
+                    e.preventDefault();
+                }
+            });
+        });
+    });
+</script>
 {% endblock %}
